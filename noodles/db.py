@@ -81,6 +81,13 @@ CREATE TABLE IF NOT EXISTS questions (
   marking_material TEXT,
   PRIMARY KEY (version_id, question_id)
 );
+CREATE TABLE IF NOT EXISTS verdict_overrides (
+  run_id TEXT NOT NULL,
+  question_id TEXT NOT NULL,
+  agent TEXT NOT NULL CHECK (agent IN ('student', 'web')),
+  verdict TEXT NOT NULL CHECK (verdict IN ('correct', 'partial', 'incorrect')),
+  PRIMARY KEY (run_id, question_id, agent)
+);
 """
 
 

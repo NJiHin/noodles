@@ -141,11 +141,26 @@ def slice05(page: Page, tmp: Path) -> None:
 
 def slice06(page: Page, tmp: Path) -> None:
     """Each cited step shows its grounding verdict under the citation."""
-    expect(page.locator(".s .why", has_text="Grounding checker: supported").first).to_be_visible()
+    expect(page.locator(".s .why", has_text="Supported. The passage states it.").first).to_be_visible()
     shot(page, "06-review-grounding")
 
 
-SLICES = [slice01, slice02, slice03, slice04, slice05, slice06]
+def slice07(page: Page, tmp: Path) -> None:
+    """Both answers with verdicts and the exposure; an override changes the exposure and survives a reload."""
+    expect(page.get_by_role("heading", name="Web-search agent")).to_be_visible()
+    expect(page.get_by_text("AI-exposed")).to_be_visible()  # fake: both answers marked correct
+    expect(page.get_by_text("en.wikipedia.org")).to_be_visible()
+    shot(page, "07-review-answers")
+    page.locator(".ans", has_text="Web-search agent").get_by_role("button", name="Override").click()
+    page.get_by_label("Override Web-search agent").select_option("incorrect")
+    expect(page.get_by_text("Depends on course-specific context")).to_be_visible()
+    page.reload()
+    expect(page.get_by_text("Depends on course-specific context")).to_be_visible()
+    expect(page.get_by_text("Overridden by you; the marker said correct.")).to_be_visible()
+    shot(page, "07-review-override")
+
+
+SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07]
 STATE: dict = {}
 
 

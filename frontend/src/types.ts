@@ -22,5 +22,10 @@ export type Step = { step_id: string; claim: string; source: 'course' | 'prerequ
 export type ReviewQuestion = {
   question_id: string; assessment_id: string; text: string; options: string[] | null; type: QType; week_cutoff: number; current_format: string
   answer: { final_answer: string | null; steps: Step[] } | null; gap: boolean
+  web: { final_answer: string | null; sources: string[] } | null
+  marks: { student: Mark; web: Mark } | null
+  exposure: 'ai_exposed' | 'course_specific' | 'neither_taught' | 'broken_or_gap' | 'not_assessed' | null
 }
+export type Verdict = 'correct' | 'partial' | 'incorrect'
+export type Mark = { verdict: Verdict; reason: string; by: 'code' | 'marker'; overridden?: Verdict }
 export type ReviewResp = { course_code: string; run: RunStatus | null; prerequisite: string | null; questions: ReviewQuestion[] }

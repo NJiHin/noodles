@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from noodles import db
 from noodles.coursemap import topic_label
 from noodles.grounding import ground
+from noodles.web import mark, question_text, web_agent
 from noodles.llm import LUNA, Run, add_usage
 
 STUDENT_V, RECHECK_V = "student-v1", "recheck-v1"
@@ -137,8 +138,7 @@ async def student(run: Run, conn: sqlite3.Connection, q: dict, course: str, targ
     system = PROMPT.format(prereq=prereq_course or "no prerequisite courses", n=n, course=course, max=MAX_LOOKUPS,
                            topics="\n".join(f"{t['concept_id']} | {topic_label(t['name'], json.loads(t['aliases']))} | "
                                             f"{t['description'] or ''}" for t in listed) or "(none)")
-    question = q["text"] + ("".join(f"\n({chr(65 + i)}) {o}" for i, o in enumerate(q["options"])) if q["options"] else "")
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": question}]
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": question_text(q)}]
 
     async def loop():
         convo, usage, lookups = list(messages), {}, 0
@@ -187,13 +187,20 @@ def tool_output(conn, call: dict, ids: list[str], lookups: int, target: str, n: 
 
 async def test_drive(run: Run, db_path: Path, course: str, target: str, prereq: str | None, prereq_course: str | None,
                      questions: list[dict]) -> None:
-    """Every question in parallel: student, re-check, grounding. Each result is written to the run log."""
+    """Every question in parallel: student (re-check, grounding) alongside the web agent, then the marker.
+    Each question's result is written to the run log."""
     conn = student_conn(db_path)
     try:
         async def one(q):
-            answer = await student(run, conn, q, course, target, prereq, prereq_course)
-            checks = await ground(run, conn, answer, target, prereq)
-            run.write({"type": "answer", **answer, "grounding": checks})
+            async def course_side():
+                a = await student(run, conn, q, course, target, prereq, prereq_course)
+                return a, await ground(run, conn, a, target, prereq)
+            (answer, checks), web = await asyncio.gather(course_side(), web_agent(run, q))
+            marks = None
+            if q["marking_material"]:
+                s, w = await asyncio.gather(mark(run, q, answer["final_answer"]), mark(run, q, web["final_answer"]))
+                marks = {"student": s, "web": w}
+            run.write({"type": "answer", **answer, "grounding": checks, "web": web, "marks": marks})
         await asyncio.gather(*(one(q) for q in questions))
     finally:
         conn.close()

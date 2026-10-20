@@ -40,3 +40,14 @@
 .review .passage span { display: block; color: var(--ink-3); font-size: 12px; }
 .review .passage span a { color: var(--accent); text-decoration: none; }
 .review .passage q { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.review .ans .src { margin-top: 8px; color: var(--ink-3); font-size: 12.5px; }
+.review .ans .src a { color: var(--ink-3); }
+.review .ovr { font: inherit; border: 0; background: none; padding: 0; color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; margin-left: 6px; cursor: pointer; }
+.review .ovr-pick { font: 12.5px var(--sans); margin-left: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+.review .rec { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; }
+.review .rec b { font-size: 15px; display: inline-flex; align-items: center; gap: 8px; }
+.review .rec.r-gap { background: var(--bad-t); border-color: #F1CDD1; } .review .rec.r-gap b { color: var(--bad); }
+.review .rec.r-format { background: var(--warn-t); border-color: #EFDAB8; } .review .rec.r-format b { color: var(--warn); }
+.review .rec.r-keep { background: var(--ok-t); border-color: #C6E2D3; } .review .rec.r-keep b { color: var(--ok); }
+.review .rec p { color: var(--ink-2); font-size: 13.5px; margin-top: 2px; }
+.review .rec .facts { color: var(--ink-3); font-size: 12.5px; margin-top: 6px; }

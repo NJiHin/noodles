@@ -20,6 +20,7 @@ from noodles.coursemap import Concept, MapError, build_map, load_map, save_map
 from noodles.llm import OpenAIClient, Run, find_log, read_log
 from noodles.ollama import Ollama, OllamaError
 from noodles.student import test_drive
+from noodles.web import Verdict, exposure
 from noodles.ingest import IngestError, check_upload_name, guess_week, ingest, read_document, slugify
 
 ID = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -35,6 +36,10 @@ class MapBody(BaseModel):
 
 class TestDriveBody(BaseModel):
     prerequisite: str | None = None  # course code; its latest reviewed version is used
+
+
+class OverrideBody(BaseModel):
+    verdict: Verdict
 
 
 class ConfirmWeeks(BaseModel):
@@ -250,7 +255,7 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             if not v["map_reviewed_at"]:
                 raise HTTPException(409, "confirm the course map first")
             questions = [{**dict(r), "options": json.loads(r["options"]) if r["options"] else None} for r in c.execute(
-                "SELECT q.question_id, q.text, q.options, a.week_cutoff FROM questions q JOIN assessments a ON "
+                "SELECT q.question_id, q.text, q.options, q.type, q.marking_material, a.week_cutoff FROM questions q JOIN assessments a ON "
                 "a.version_id = q.version_id AND a.assessment_id = q.assessment_id WHERE q.version_id = ? "
                 "AND q.type != 'code' ORDER BY a.week_cutoff, q.rowid", (vid,))]
             if not questions:
@@ -277,6 +282,8 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             recs = read_log(path) if path else []
             answers = {r["question_id"]: r for r in recs if r["type"] == "answer"}
             cfg = recs[0] if recs else {}
+            overrides = {(r["question_id"], r["agent"]): r["verdict"] for r in c.execute(
+                "SELECT * FROM verdict_overrides WHERE run_id = ?", (cfg.get("run_id"),))}
             cited = {e for a in answers.values() for s in a["steps"] for e in s["evidence"]}
             passages = {r["passage_id"]: dict(r) for r in c.execute(
                 f"SELECT p.passage_id, v.course_code AS course, p.version_id, p.week, f.filename, p.file_slug AS slug, "
@@ -298,11 +305,31 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                     a = {**{k: v for k, v in a.items() if k != "grounding"},
                          "steps": [{**s, "evidence": [seen(e) for e in s["evidence"]], "grounding": g.get(s["step_id"])}
                                    for s in a["steps"]]}
-                questions.append({**dict(q), "options": json.loads(q["options"]) if q["options"] else None, "answer": a,
+                marks = None
+                if a and a["marks"]:  # the professor's override replaces the verdict; the original is kept
+                    marks = {k: {**m, "verdict": overrides[q["question_id"], k], "overridden": m["verdict"]}
+                             if (q["question_id"], k) in overrides else m for k, m in a["marks"].items()}
+                questions.append({**dict(q), "options": json.loads(q["options"]) if q["options"] else None,
+                                  "answer": a and {k: v for k, v in a.items() if k not in ("web", "marks")},
+                                  "web": a and a["web"], "marks": marks, "exposure": exposure(marks) if a else None,
                                   "gap": bool(a) and any(s["source"] == "none" or (s["grounding"] or {}).get("verdict")
                                                          == "unsupported" for s in a["steps"])})
         return {"course_code": code, "run": run_status(path) if path else None,
                 "prerequisite": cfg.get("prerequisite_course"), "questions": questions}
+
+    @app.put("/runs/{run_id}/overrides/{qid}/{agent}")
+    def override(run_id: str, qid: str, agent: str, body: OverrideBody):
+        """The professor's verdict for one answer of one run; exposure is recomputed from it."""
+        path = find_log(runs_dir, safe_id(run_id))
+        a = path and next((r for r in read_log(path) if r["type"] == "answer" and r["question_id"] == qid), None)
+        if not a:
+            raise HTTPException(404, "no answer for that question in this run")
+        if agent not in ("student", "web") or not a["marks"]:
+            raise HTTPException(422, "only marked student or web answers can be overridden")
+        with conn() as c, c:
+            c.execute("INSERT OR REPLACE INTO verdict_overrides (run_id, question_id, agent, verdict) VALUES (?, ?, ?, ?)",
+                      (run_id, qid, agent, body.verdict))
+        return {"ok": True}
 
     @app.get("/courses")
     def courses():

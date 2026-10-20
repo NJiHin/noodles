@@ -46,7 +46,7 @@ class OpenAIClient:
                              "schema": to_strict_json_schema(schema)}})
         u = r.usage
         usage = {"input_tokens": u.input_tokens, "cached_tokens": u.input_tokens_details.cached_tokens,
-                 "output_tokens": u.output_tokens}
+                 "output_tokens": u.output_tokens, "web_search_calls": sum(o.type == "web_search_call" for o in r.output)}
         if calls := [{"type": "function_call", "call_id": o.call_id, "name": o.name, "arguments": o.arguments}
                      for o in r.output if o.type == "function_call"]:
             return calls, usage
@@ -144,10 +144,12 @@ class Run:
         raise LLMError(f"{error} (after {self.retries} attempts)")
 
     async def call(self, call_type: str, model: str, prompt_version: str, messages: list[dict],
-                   schema: type[BaseModel], question_id: str | None = None, sees: Any = None) -> BaseModel:
-        """Structured call. `sees` is the content the call can see (defaults to the messages)."""
+                   schema: type[BaseModel], question_id: str | None = None, sees: Any = None,
+                   tools: list[dict] | None = None) -> BaseModel:
+        """Structured call. `sees` is the content the call can see (defaults to the messages).
+        `tools` here are hosted tools (web_search) that end in a structured answer."""
         async def produce():
-            out, usage = await self.request(call_type, model, messages, schema)
+            out, usage = await self.request(call_type, model, messages, schema, tools)
             return out.model_dump(), usage, {}
         rec = await self.cached(call_type, model, prompt_version, messages if sees is None else sees, question_id, produce)
         return schema.model_validate(rec["output"])

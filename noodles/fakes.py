@@ -82,7 +82,9 @@ class FakeOpenAI:
     def __init__(self, **handlers):
         self.handlers = {"WeekRecords": fake_extract, "MergedMap": fake_orchestrate, "QuestionSplit": fake_split,
                          "StudentAnswer": fake_student, "Relabels": fake_relabel,
-                         "Grounding": lambda m: {"verdict": "supported", "reason": "The passage states it."}, **handlers}
+                         "Grounding": lambda m: {"verdict": "supported", "reason": "The passage states it."},
+                         "WebAnswer": lambda m: {"final_answer": "A", "sources": ["https://en.wikipedia.org/wiki/Loop"]},
+                         "Mark": lambda m: {"verdict": "correct", "reason": "Matches the marking material."}, **handlers}
         self.calls: list[tuple[str, str, list[dict]]] = []
 
     def count(self, schema: str) -> int:
@@ -94,4 +96,5 @@ class FakeOpenAI:
         out = h(messages, tools) if len(inspect.signature(h).parameters) > 1 else h(messages)
         if inspect.isawaitable(out):
             out = await out
-        return out, {"input_tokens": 100, "cached_tokens": 0, "output_tokens": 20}
+        web = int(any(t.get("type") == "web_search" for t in tools or []))
+        return out, {"input_tokens": 100, "cached_tokens": 0, "output_tokens": 20, "web_search_calls": web}
