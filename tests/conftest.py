@@ -42,6 +42,7 @@ def app(tmp_path):
 @pytest.fixture
 def client(app):
     with TestClient(app) as c:  # one event loop for the app's lifetime, so background runs keep going
+        c.app_db = app.state.db_path
         yield c
 
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, pdfHref, post } from '../api'
 import { RunProgress } from '../RunProgress'
-import { Shell, fmtDate, versionNav } from '../Shell'
+import { VersionShell, fmtDate } from '../Shell'
 import { DEPTHS, type Concept, type PassageRef, type RunStatus } from '../types'
 
 type MapResp = {
@@ -57,7 +57,7 @@ export function CourseMap({ vid }: { vid: string }) {
   const dirty = m && JSON.stringify(edit) !== JSON.stringify(m.concepts)
 
   return (
-    <Shell course={m?.course_code ?? '…'} sub={m?.reviewed_at ? `Map reviewed ${fmtDate(m.reviewed_at)}` : 'Map not reviewed'} nav={versionNav(vid, 'Course map')}>
+    <VersionShell vid={vid} on="Course map">
       <main className="page">
         <div className="page-head">
           <div className="meta">Version {vid}</div>
@@ -141,6 +141,6 @@ export function CourseMap({ vid }: { vid: string }) {
           </section>
         )}
       </main>
-    </Shell>
+    </VersionShell>
   )
 }

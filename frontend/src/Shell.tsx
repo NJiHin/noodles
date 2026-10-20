@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { api } from './api'
 
 export type Nav = { label: string; href: string; on?: boolean; n?: number }
 
@@ -27,5 +28,19 @@ export function versionNav(vid: string, on: string): Nav[] {
     { label: 'Courses', href: '#/' },
     { label: 'Materials', href: `#/v/${vid}/materials` },
     { label: 'Course map', href: `#/v/${vid}/map` },
+    { label: 'Assessments', href: `#/v/${vid}/assessments` },
   ].map((n) => ({ ...n, on: n.label === on }))
+}
+
+type Version = { id: string; course_code: string; created_at: string; map_reviewed_at: string | null }
+
+/** Shell for a version's screens: course code and upload date in the side panel. */
+export function VersionShell({ vid, on, children }: { vid: string; on: string; children: ReactNode }) {
+  const [v, setV] = useState<Version | null>(null)
+  useEffect(() => { api<Version>(`/versions/${vid}`).then(setV).catch(() => setV(null)) }, [vid])
+  return (
+    <Shell course={v?.course_code ?? '…'} sub={v ? `Version of ${fmtDate(v.created_at)}` : ''} nav={versionNav(vid, on)}>
+      {children}
+    </Shell>
+  )
 }

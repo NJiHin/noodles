@@ -57,6 +57,30 @@ CREATE TABLE IF NOT EXISTS evidence (
   FOREIGN KEY (version_id, passage_id) REFERENCES passages(version_id, passage_id)
 );
 CREATE INDEX IF NOT EXISTS evidence_by_passage ON evidence (version_id, passage_id);
+CREATE TABLE IF NOT EXISTS assessments (
+  version_id TEXT NOT NULL,
+  assessment_id TEXT NOT NULL,
+  week_cutoff INTEGER NOT NULL,
+  current_format TEXT NOT NULL CHECK (current_format IN ('take_home', 'online_quiz', 'invigilated_exam')),
+  PRIMARY KEY (version_id, assessment_id)
+);
+CREATE TABLE IF NOT EXISTS assessment_files (
+  version_id TEXT NOT NULL,
+  assessment_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('paper', 'answers')),
+  filename TEXT NOT NULL,
+  text TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS questions (
+  version_id TEXT NOT NULL,
+  question_id TEXT NOT NULL,
+  assessment_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  options TEXT,
+  type TEXT NOT NULL CHECK (type IN ('mcq', 'true_false', 'short', 'numeric', 'open', 'code')),
+  marking_material TEXT,
+  PRIMARY KEY (version_id, question_id)
+);
 """
 
 

@@ -6,17 +6,25 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile
+import shutil
+import tempfile
+
+from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from noodles import db
+from noodles.assessments import FORMATS, QuestionsError, SplitQuestion, confirmed_questions, flags, save_questions, split
 from noodles.coursemap import Concept, MapError, build_map, load_map, save_map
 from noodles.llm import OpenAIClient, Run, find_log, read_log
 from noodles.ollama import Ollama, OllamaError
-from noodles.ingest import IngestError, check_upload_name, guess_week, ingest
+from noodles.ingest import IngestError, check_upload_name, guess_week, ingest, read_document, slugify
 
 ID = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+class QuestionsBody(BaseModel):
+    questions: list[SplitQuestion]
 
 
 class MapBody(BaseModel):
@@ -35,7 +43,7 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
     db.init(db_path)
     vlm = ollama or Ollama()
     app = FastAPI(title="noodles")
-    app.state.openai = openai
+    app.state.openai, app.state.db_path = openai, db_path
     tasks: dict[str, asyncio.Task] = {}
 
     @contextmanager
@@ -83,6 +91,8 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
         out = {"run_id": cfg["run_id"], "kind": cfg["kind"], "version": cfg["version"], "status": status,
                "error": end and end["error"], "started_at": cfg["started_at"], "ended_at": end and end["ended_at"],
                "done": len(calls), "total": None, "stage": ""}
+        if cfg["kind"] == "split":
+            out |= {"total": 1, "stage": "Splitting the paper into questions"}
         if cfg["kind"] == "map":
             n = len(cfg["weeks"])
             extracted = sum(r["call_type"] == "extractor" for r in calls)
@@ -90,9 +100,10 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                     else "Merging topics across weeks"}
         return out
 
-    def latest_run(code: str, vid: str, kind: str) -> Path | None:
+    def latest_run(code: str, vid: str, kind: str, **match) -> Path | None:
         for path in sorted((runs_dir / code / vid).glob("*.jsonl"), reverse=True):
-            if read_log(path)[0]["kind"] == kind:
+            cfg = read_log(path)[0]
+            if cfg["kind"] == kind and all(cfg.get(k) == v for k, v in match.items()):
                 return path
         return None
 
@@ -142,6 +153,82 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             try:
                 save_map(c, vid, body.concepts)
             except MapError as e:
+                raise HTTPException(422, str(e))
+        return {"ok": True}
+
+    @app.post("/versions/{vid}/assessments")
+    async def add_assessment(vid: str, name: str = Form(), week_cutoff: int = Form(), current_format: str = Form(),
+                             paper: UploadFile = Form(), answers: UploadFile | None = Form(None)):
+        """Parse the paper (and answers) into assessment_files, then start the question split."""
+        if week_cutoff < 1 or current_format not in FORMATS:
+            raise HTTPException(422, f"week_cutoff must be 1 or more and current_format one of {', '.join(FORMATS)}")
+        aid = slugify(name)
+        with conn() as c:
+            code = version_row(c, vid)["course_code"]
+        texts = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            for kind, f in (("paper", paper), ("answers", answers)):
+                if not f:
+                    continue
+                fname = Path(f.filename or "").name
+                try:
+                    check_upload_name(fname)
+                    src = Path(tmp) / kind / fname
+                    src.parent.mkdir()
+                    src.write_bytes(await f.read())
+                    texts[kind] = (fname, await asyncio.to_thread(read_document, src, vlm))
+                except IngestError as e:
+                    raise HTTPException(422, str(e))
+                except OllamaError as e:
+                    raise HTTPException(503, str(e))
+        with conn() as c, c:
+            before = {(r["kind"], r["filename"], r["text"]) for r in c.execute(
+                "SELECT kind, filename, text FROM assessment_files WHERE version_id = ? AND assessment_id = ?", (vid, aid))}
+            if before != {(k, fn, t) for k, (fn, t) in texts.items()}:  # new files: confirmed questions no longer apply
+                c.execute("DELETE FROM questions WHERE version_id = ? AND assessment_id = ?", (vid, aid))
+            c.execute("DELETE FROM assessment_files WHERE version_id = ? AND assessment_id = ?", (vid, aid))
+            c.execute("INSERT OR REPLACE INTO assessments (version_id, assessment_id, week_cutoff, current_format) "
+                      "VALUES (?, ?, ?, ?)", (vid, aid, week_cutoff, current_format))
+            c.executemany("INSERT INTO assessment_files (version_id, assessment_id, kind, filename, text) VALUES (?, ?, ?, ?, ?)",
+                          [(vid, aid, k, fn, t) for k, (fn, t) in texts.items()])
+        paper_text, answers_text = texts["paper"][1], texts.get("answers", (None, None))[1]
+        run_id = start_job(code, vid, {"kind": "split", "assessment_id": aid},
+                           lambda run, c: split(run, aid, paper_text, answers_text))
+        return {"assessment_id": aid, "run_id": run_id}
+
+    @app.get("/versions/{vid}/assessments")
+    def list_assessments(vid: str):
+        """Each assessment with its confirmed questions, or else the latest split draft; code-check flags on each."""
+        out = []
+        with conn() as c:
+            code = version_row(c, vid)["course_code"]
+            for a in c.execute("SELECT * FROM assessments WHERE version_id = ? ORDER BY week_cutoff, assessment_id", (vid,)):
+                aid = a["assessment_id"]
+                files = {r["kind"]: r for r in c.execute("SELECT kind, filename, text FROM assessment_files "
+                                                         "WHERE version_id = ? AND assessment_id = ?", (vid, aid))}
+                path = latest_run(code, vid, "split", assessment_id=aid)
+                run = run_status(path) if path else None
+                draft = next((r for r in read_log(path) if r["type"] == "split"), None) if path else None
+                questions = confirmed_questions(c, vid, aid)
+                state = "confirmed" if questions else "draft" if draft else run["status"] if run else "none"
+                if not questions and draft:
+                    questions = draft["questions"]
+                paper = files["paper"]["text"] if "paper" in files else ""
+                out.append({"assessment_id": aid, "week_cutoff": a["week_cutoff"], "current_format": a["current_format"],
+                            "files": {k: r["filename"] for k, r in files.items()}, "state": state, "run": run,
+                            "questions": [{**q, "flags": flags(paper, q)} for q in questions],
+                            "unmatched_marking_material": draft["unmatched_marking_material"] if draft and state == "draft" else []})
+        return out
+
+    @app.put("/versions/{vid}/assessments/{aid}/questions")
+    def confirm_questions(vid: str, aid: str, body: QuestionsBody):
+        with conn() as c:
+            version_row(c, vid)
+            if not c.execute("SELECT 1 FROM assessments WHERE version_id = ? AND assessment_id = ?", (vid, aid)).fetchone():
+                raise HTTPException(404, "assessment not found")
+            try:
+                save_questions(c, vid, aid, body.questions)
+            except QuestionsError as e:
                 raise HTTPException(422, str(e))
         return {"ok": True}
 
@@ -195,6 +282,11 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                 raise HTTPException(422, str(e))
             except OllamaError as e:
                 raise HTTPException(503, str(e))
+
+    @app.get("/versions/{vid}")
+    def get_version(vid: str):
+        with conn() as c:
+            return dict(version_row(c, vid))
 
     @app.get("/versions/{vid}/files")
     def version_files(vid: str):

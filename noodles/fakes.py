@@ -44,11 +44,22 @@ def fake_orchestrate(messages: list[dict]) -> dict:
     return {"concepts": list(merged.values())}
 
 
+def fake_split(messages: list[dict]) -> dict:
+    """One short question per line of the paper that ends with '?'."""
+    user = _user(messages)
+    paper = user.split("ANSWERS:")[0]
+    qs = [{"question_id": str(i), "text": t.strip(), "options": None, "type": "short",
+           "marking_material": None if "(no answers provided)" in user else f"Model answer {i}."}
+          for i, t in enumerate(re.findall(r"([^\n?]+\?)", paper), 1)]
+    return {"questions": qs, "unmatched_marking_material": []}
+
+
 class FakeOpenAI:
     """Scripted client: handlers by schema name, each (messages) -> output. Records every call."""
 
     def __init__(self, **handlers):
-        self.handlers = {"WeekRecords": fake_extract, "MergedMap": fake_orchestrate, **handlers}
+        self.handlers = {"WeekRecords": fake_extract, "MergedMap": fake_orchestrate, "QuestionSplit": fake_split,
+                         **handlers}
         self.calls: list[tuple[str, str, list[dict]]] = []
 
     def count(self, schema: str) -> int:

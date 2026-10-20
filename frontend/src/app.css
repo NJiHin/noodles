@@ -44,3 +44,14 @@ table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: to
 .ev .chip button { border: 0; background: none; color: var(--ink-3); cursor: pointer; font-size: 14px; padding: 0 4px; }
 .panel h2 { font-size: 14px; font-weight: 600; }
 .panel .hint { color: var(--ink-3); font-size: 13px; margin-top: 2px; }
+.a-head { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
+.orphans { margin-top: 12px; background: var(--bad-t); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--bad); }
+.orphans p { color: var(--ink-2); margin-top: 4px; }
+.qs-edit { margin-top: 12px; }
+.q-edit { border-top: 1px solid var(--line); padding: 12px 0; display: grid; gap: 6px; }
+.q-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.q-top b { min-width: 36px; }
+.q-top select { font: 13px var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; background: var(--surface); }
+.q-top .del { margin-left: auto; padding: 4px 10px; }
+.q-edit textarea { font: 14px/1.45 var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; resize: vertical; color: var(--ink); background: var(--surface); }
+.q-edit textarea.mm, .q-edit textarea.opts { font-size: 13px; color: var(--ink-2); background: var(--bg); }

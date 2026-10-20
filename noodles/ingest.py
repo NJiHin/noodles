@@ -203,3 +203,12 @@ def ingest(conn: sqlite3.Connection, files_dir: Path, code: str, staged: list[Pa
     finally:
         shutil.rmtree(work, ignore_errors=True)
     return vid
+
+
+def read_document(src: Path, vlm) -> str:
+    """One file's text through the same pipeline (convert, parse, transcribe flagged pages), pages joined."""
+    with tempfile.TemporaryDirectory() as tmp:
+        pdf = Path(tmp) / "doc.pdf"
+        to_pdf(src, pdf)
+        pages = transcribe_flagged(pdf, parse_pdfs([pdf])[pdf], vlm)
+    return "\n\n".join(text for text, _ in pages)

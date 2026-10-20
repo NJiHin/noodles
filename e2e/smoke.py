@@ -97,7 +97,30 @@ def slice03(page: Page, tmp: Path) -> None:
     shot(page, "03-map-confirmed")
 
 
-SLICES = [slice01, slice02, slice03]
+def slice04(page: Page, tmp: Path) -> None:
+    """Add an assessment with answers, check the split and flags, confirm the questions."""
+    (tmp / "quiz.pdf").write_bytes(make_pdf(["Q1. What does a loop repeat in a program written in C?",
+                                             "Q2. Why do variables need names in a program written in C?"]))
+    (tmp / "quiz-answers.pdf").write_bytes(make_pdf(["1. A block of code, until its condition is false. 2. To refer to values."]))
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{STATE['version']}/assessments")
+    page.get_by_label("Name").fill("Week 4 quiz")
+    page.get_by_label("Covers weeks 1 to").fill("2")
+    page.get_by_label("Current format").select_option("online_quiz")
+    page.get_by_label("Paper").set_input_files(str(tmp / "quiz.pdf"))
+    page.get_by_label("Answers (optional)").set_input_files(str(tmp / "quiz-answers.pdf"))
+    page.get_by_role("button", name="Add").click()
+    expect(page.get_by_text("Check and confirm")).to_be_visible(timeout=30_000)
+    expect(page.get_by_label("Text of week-4-quiz-q1")).to_have_value("Q1. What does a loop repeat in a program written in C?")
+    page.get_by_label("Type of week-4-quiz-q2").select_option("code")
+    expect(page.get_by_text("not assessed (code question)")).to_be_visible()
+    shot(page, "04-question-confirm")
+    page.get_by_role("button", name="Confirm questions").click()
+    expect(page.get_by_text("Confirmed, 2 questions")).to_be_visible()
+    shot(page, "04-confirmed")
+    STATE["assessment"] = "week-4-quiz"
+
+
+SLICES = [slice01, slice02, slice03, slice04]
 STATE: dict = {}
 
 

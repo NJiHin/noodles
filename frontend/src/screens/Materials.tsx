@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, pdfHref } from '../api'
-import { Shell, fmtDate, versionNav } from '../Shell'
+import { VersionShell } from '../Shell'
 
 type Page = { passage_id: string; page: number; text: string; origin: 'parser' | 'vlm' }
 type File = { slug: string; filename: string; week: number; pages: Page[] }
@@ -18,7 +18,7 @@ export function Materials({ vid }: { vid: string }) {
   const pages = v ? v.files.reduce((n, f) => n + f.pages.length, 0) : 0
 
   return (
-    <Shell course={v?.course_code ?? '…'} sub={v ? `Version of ${fmtDate(v.created_at)}` : ''} nav={versionNav(vid, 'Materials')}>
+    <VersionShell vid={vid} on="Materials">
       <main className="page">
         <div className="page-head">
           <div className="meta">Version {vid}</div>
@@ -49,6 +49,6 @@ export function Materials({ vid }: { vid: string }) {
           </section>
         )}
       </main>
-    </Shell>
+    </VersionShell>
   )
 }
