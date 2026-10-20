@@ -128,8 +128,8 @@ def slice05(page: Page, tmp: Path) -> None:
     expect(page.get_by_text("Not assessed (code question)")).to_be_visible()  # q2 was set to code in slice 04
     page.locator(".item", has_text="What does a loop repeat").click()
     expect(page.get_by_role("heading", name="The student's steps")).to_be_visible()
-    expect(page.get_by_text("Gap: a step is uncited or unsupported")).to_be_visible()  # the fake student adds an uncited step
-    expect(page.get_by_text("No source.")).to_be_visible()
+    expect(page.locator(".ans .v.bad", has_text="Gap")).to_be_visible()  # the fake student adds an uncited step
+    expect(page.locator(".why b", has_text="No source.")).to_be_visible()
     link = page.locator(".passage a").first
     expect(link).to_contain_text("CS1010, week")
     href = link.get_attribute("href")
@@ -148,19 +148,36 @@ def slice06(page: Page, tmp: Path) -> None:
 def slice07(page: Page, tmp: Path) -> None:
     """Both answers with verdicts and the exposure; an override changes the exposure and survives a reload."""
     expect(page.get_by_role("heading", name="Web-search agent")).to_be_visible()
-    expect(page.get_by_text("AI-exposed")).to_be_visible()  # fake: both answers marked correct
+    expect(page.locator(".rec .facts", has_text="AI-exposed: both answers correct.")).to_be_visible()  # fake marker
     expect(page.get_by_text("en.wikipedia.org")).to_be_visible()
     shot(page, "07-review-answers")
     page.locator(".ans", has_text="Web-search agent").get_by_role("button", name="Override").click()
     page.get_by_label("Override Web-search agent").select_option("incorrect")
-    expect(page.get_by_text("Depends on course-specific context")).to_be_visible()
+    facts = page.locator(".rec .facts", has_text="Student correct, web-search agent incorrect.")
+    expect(facts).to_be_visible()
     page.reload()
-    expect(page.get_by_text("Depends on course-specific context")).to_be_visible()
+    expect(facts).to_be_visible()
     expect(page.get_by_text("Overridden by you; the marker said correct.")).to_be_visible()
     shot(page, "07-review-override")
 
 
-SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07]
+def slice08(page: Page, tmp: Path) -> None:
+    """Recommendation block and grouping in the review; summary verdict, actions, grid and bars."""
+    expect(page.locator(".rec b", has_text="Fix coverage first, then reassess")).to_be_visible()
+    expect(page.get_by_text("Step 2 has no source.")).to_be_visible()
+    expect(page.locator(".group", has_text="Fix coverage first")).to_be_visible()
+    shot(page, "08-review-recommendation")
+    page.get_by_role("link", name="Summary").click()
+    expect(page.get_by_text("0 of 1 questions can stay as they are.")).to_be_visible()
+    expect(page.locator(".actions b", has_text="Fix coverage first")).to_be_visible()
+    expect(page.locator(".cell.good .chip", has_text="Q1")).to_be_visible()  # overridden in slice 07: web wrong
+    expect(page.locator(".bar span.gap")).to_have_count(1)
+    shot(page, "08-summary")
+    page.locator(".actions .chip").first.click()
+    expect(page.get_by_role("heading", name="The student's steps")).to_be_visible()
+
+
+SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08]
 STATE: dict = {}
 
 

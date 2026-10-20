@@ -31,12 +31,7 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
   }
 
   const qs = r?.questions ?? []
-  const groups: [string, ReviewQuestion[]][] = [
-    ['Gap: a step is uncited or unsupported', qs.filter((q) => q.gap)],
-    ['No gap found', qs.filter((q) => q.answer && !q.gap)],
-    ['Not run yet', qs.filter((q) => !q.answer && q.type !== 'code')],
-    ['Not assessed (code question)', qs.filter((q) => q.type === 'code')],
-  ]
+  const groups: [string, ReviewQuestion[]][] = GROUPS.map((g) => [g, qs.filter((q) => (q.recommendation?.group ?? 'Not run yet') === g)])
   const sel = qs.find((q) => q.question_id === qid) ?? groups.flatMap(([, g]) => g)[0]
   const running = r?.run?.status === 'running'
 
@@ -63,7 +58,7 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
             <div key={name}>
               <div className="group"><span>{name}</span><span>{g.length}</span></div>
               {g.map((q) => (
-                <a key={q.question_id} className={`item${q === sel ? ' on' : ''}${q.type === 'code' ? ' done' : ''}`} href={`#/v/${vid}/review/${q.question_id}`}>
+                <a key={q.question_id} className={`item${q === sel ? ' on' : ''}${q.type === 'code' || q.recommendation?.group === 'Keep as is' ? ' done' : ''}`} href={`#/v/${vid}/review/${q.question_id}`}>
                   <span className="id">{short(q)}</span><span className="t">{q.text}</span><span className="wk">{q.assessment_id}</span>
                 </a>
               ))}
@@ -89,7 +84,7 @@ function Detail({ q, prereq, runId, reload }: { q: ReviewQuestion; prereq: strin
       {q.type !== 'code' && !a && <p className="muted">Not run yet. Start a test-drive to see the student's answer.</p>}
       {a && (
         <>
-          <Exposure q={q} />
+          <Recommendation q={q} />
           <div className="answers">
             <AnswerCard title="Course-limited student" answer={a.final_answer} mark={q.marks?.student} gap={q.gap}
               override={(v) => setVerdict(runId, q.question_id, 'student', v, reload)} />
@@ -164,22 +159,22 @@ function AnswerCard({ title, answer, mark, gap, sources, override }: {
 
 const host = (u: string) => { try { return new URL(u).hostname } catch { return u } }
 
-const EXPOSURE: Record<string, [string, string, string]> = {
-  ai_exposed: ['r-format', 'AI-exposed', 'The web-search agent answers it correctly, as does the course-limited student.'],
-  course_specific: ['r-keep', 'Depends on course-specific context', 'The student answers it from the course; the web-search agent doesn\'t.'],
-  neither_taught: ['r-gap', 'Needs knowledge that\'s neither taught nor declared', 'The web-search agent answers it correctly; the course-limited student doesn\'t.'],
-  broken_or_gap: ['r-gap', 'Broken question, or a gap', 'Neither answer is correct.'],
-  not_assessed: ['', 'AI exposure not assessed', 'This question has no marking material.'],
+const GROUPS = ['Fix coverage first', 'Review the question', 'Change format', 'Could be open or take-home',
+  'AI exposure not assessed', 'Keep as is', 'Not run yet', 'Not assessed (code question)']
+const REC_CLASS: Record<string, string> = {
+  'Fix coverage first': 'r-gap', 'Review the question': 'r-gap', 'Change format': 'r-format',
+  'Could be open or take-home': 'r-keep', 'Keep as is': 'r-keep',
 }
 
-function Exposure({ q }: { q: ReviewQuestion }) {
-  if (!q.exposure) return null
-  const [cls, title, text] = EXPOSURE[q.exposure]
+/** c2b: the recommendation block, tinted like its group. */
+function Recommendation({ q }: { q: ReviewQuestion }) {
+  const r = q.recommendation
+  if (!r || r.key === 'code') return null
   return (
-    <div className={`rec ${cls}`}>
-      <b>{title}</b>
-      <p>{text}</p>
-      {q.marks && <p className="facts">Student {q.marks.student.verdict}, web-search agent {q.marks.web.verdict}. Only "correct" counts as right.</p>}
+    <div className={`rec ${REC_CLASS[r.group] ?? ''}`}>
+      <b>{r.title}</b>
+      <p>{r.text}</p>
+      <p className="facts">{r.facts}</p>
     </div>
   )
 }
