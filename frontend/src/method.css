@@ -1,0 +1,18 @@
+/* c6-method board */
+.method.page { max-width: 1100px; }
+.method .cols { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: start; }
+.method .flow { list-style: none; padding: 0; margin-top: 16px; counter-reset: s; display: grid; gap: 0; }
+.method .flow li { display: grid; grid-template-columns: 32px 1fr; gap: 14px; counter-increment: s; position: relative; padding-bottom: 18px; }
+.method .flow li::before { content: counter(s); width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent); font-weight: 600; font-size: 12.5px; display: grid; place-items: center; background: var(--surface); position: relative; z-index: 1; }
+.method .flow li:not(:last-child)::after { content: ""; position: absolute; left: 12.5px; top: 26px; bottom: 0; width: 1.5px; background: var(--line); }
+.method .flow b { font-weight: 600; display: block; padding-top: 2px; }
+.method .flow p { color: var(--ink-2); font-size: 13.5px; max-width: 66ch; }
+.method .lim { margin-top: 12px; display: grid; gap: 0; }
+.method .lim div { border-top: 1px solid var(--line); padding: 12px 0; }
+.method .lim b { font-weight: 600; }
+.method .lim p { color: var(--ink-2); font-size: 13.5px; max-width: 80ch; }
+.method dl { margin-top: 12px; display: grid; grid-template-columns: auto 1fr; gap: 9px 16px; font-size: 13.5px; }
+.method dt { color: var(--ink-3); }
+.method dd { margin: 0; text-align: right; }
+.method table.cost { margin-top: 16px; font-size: 12.5px; }
+.method table.cost td:not(:first-child), .method table.cost th:not(:first-child) { text-align: right; }

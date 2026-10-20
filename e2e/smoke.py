@@ -247,7 +247,17 @@ def slice11(page: Page, tmp: Path) -> None:
     expect(page.get_by_text("There is no previous run to compare with")).to_be_visible()
 
 
-SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08, slice09, slice10, slice11]
+def slice12(page: Page, tmp: Path) -> None:
+    """Method steps, this run's facts (prices unset under the fake: token counts instead of dollars), limitations."""
+    page.get_by_role("link", name="Method and limitations").click()
+    expect(page.get_by_role("heading", name="How it works")).to_be_visible()
+    expect(page.get_by_text("Rerun this time")).to_be_visible()
+    expect(page.get_by_text("Prices not set")).to_be_visible()
+    expect(page.get_by_text("One attempt per question.")).to_be_visible()
+    shot(page, "12-method")
+
+
+SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08, slice09, slice10, slice11, slice12]
 STATE: dict = {}
 
 

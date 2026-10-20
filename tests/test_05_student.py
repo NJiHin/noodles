@@ -181,7 +181,7 @@ def test_none_step_shows_as_gap(client, target):
     assert r["quiz-q1"]["gap"] is True and r["quiz-q2"]["gap"] is False
     ev = r["quiz-q2"]["answer"]["steps"][0]["evidence"][0]
     assert ev == {"passage_id": "CS2030-w2-week2-p1", "course": "CS2030", "version_id": target, "week": 2,
-                  "filename": "week2.pdf", "slug": "week2", "page": 1, "text": PAGES[2]}
+                  "filename": "week2.pdf", "slug": "week2", "page": 1, "text": PAGES[2], "origin": "parser"}
     assert r["quiz-q3"]["answer"] is None and r["quiz-q3"]["type"] == "code"  # code questions skipped
 
 

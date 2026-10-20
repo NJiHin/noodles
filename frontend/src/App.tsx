@@ -7,6 +7,7 @@ import { Review } from './screens/Review'
 import { Summary } from './screens/Summary'
 import { LearningPath } from './screens/LearningPath'
 import { Changes } from './screens/Changes'
+import { Method } from './screens/Method'
 
 export default function App() {
   const [a, vid, screen, qid] = useHash()
@@ -17,5 +18,6 @@ export default function App() {
   if (a === 'v' && vid && screen === 'summary') return <Summary vid={vid} />
   if (a === 'v' && vid && screen === 'learning-path') return <LearningPath vid={vid} />
   if (a === 'v' && vid && screen === 'changes') return <Changes vid={vid} />
+  if (a === 'v' && vid && screen === 'method') return <Method vid={vid} />
   return <Home />
 }

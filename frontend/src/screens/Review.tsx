@@ -125,7 +125,7 @@ function StepItem({ s, n, cutoff, prereq, course, reload }: { s: Step; n: number
         {s.evidence.map((p) => (
           <div className="passage" key={p.passage_id}>
             {p.slug && p.version_id && p.page
-              ? <span><a href={pdfHref(p.version_id, p.slug, p.page)} target="_blank" rel="noreferrer">{p.course}, week {p.week}, {p.filename}, page {p.page}</a></span>
+              ? <span><a href={pdfHref(p.version_id, p.slug, p.page)} target="_blank" rel="noreferrer">{p.course}, week {p.week}, {p.filename}, page {p.page}</a>{p.origin === 'vlm' && ' · transcribed by a vision model'}</span>
               : <span>{p.passage_id} (not a passage the student could see)</span>}
             {p.text && <q>{p.text}</q>}
           </div>

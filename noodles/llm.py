@@ -87,7 +87,7 @@ class Run:
     @classmethod
     def start(cls, runs_dir: Path, code: str, version: str, config: dict, client, *,
               concurrency: int = 4, retries: int = 3, retry_delay: float = 2.0) -> "Run":
-        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6]
+        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f") + "-" + uuid.uuid4().hex[:6]  # sorts in start order
         path = runs_dir / code / version / f"{run_id}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         cache = load_cache(runs_dir, code)

@@ -6,6 +6,7 @@ import './review.css'
 import './summary.css'
 import './lp.css'
 import './changes.css'
+import './method.css'
 import App from './App.tsx'
 
 createRoot(document.getElementById('root')!).render(

@@ -22,6 +22,7 @@ from noodles.llm import OpenAIClient, Run, find_log, now, read_log
 from noodles.ollama import Ollama, OllamaError
 from noodles.student import test_drive
 from noodles.web import Verdict, exposure
+from noodles.cost import run_cost
 from noodles.report import changes, learning_path, recommend, summary
 from noodles.ingest import IngestError, check_upload_name, guess_week, ingest, read_document, slugify
 
@@ -302,6 +303,29 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
         r = get_review(vid)
         return {"course_code": r["course_code"], "run": r["run"], **summary(r["questions"])}
 
+    @app.get("/versions/{vid}/method")
+    def get_method(vid: str):
+        """Facts and actual cost of the version's latest test-drive (sys-design Stage 4 section 6)."""
+        with conn() as c:
+            v = version_row(c, vid)
+            path = latest_run(v["course_code"], vid, "test_drive")
+            prev = previous_version(c, v, with_run=True)
+            passages = c.execute("SELECT count(*), sum(origin = 'vlm') FROM passages WHERE version_id = ?", (vid,)).fetchone()
+            topics = c.execute("SELECT count(*) FROM concepts WHERE version_id = ?", (vid,)).fetchone()[0]
+            qs = c.execute("SELECT count(*), count(DISTINCT assessment_id) FROM questions WHERE version_id = ?", (vid,)).fetchone()
+        recs = read_log(path) if path else []
+        calls = [r for r in recs if r["type"] == "call"]
+        prev_run = prev and latest_run(v["course_code"], prev, "test_drive")
+        return {"course_code": v["course_code"], "created_at": v["created_at"],
+                "run": path and {**run_status(path), "prerequisite": recs[0].get("prerequisite_course"),
+                                 "compared_with": prev and {"version_id": prev, "run": run_status(prev_run)},
+                                 "passages": passages[0], "transcribed": passages[1] or 0,
+                                 "topics": topics, "map_reviewed_at": v["map_reviewed_at"],
+                                 "questions": qs[0], "assessments": qs[1], "assessed": len(recs[0]["questions"]),
+                                 "rerun": len({r["question_id"] for r in calls if not r["cached"] and r["question_id"]}),
+                                 "models": sorted({r["model"] for r in calls})},
+                "cost": run_cost(recs)}
+
     @app.get("/versions/{vid}/changes")
     def get_changes(vid: str):
         """This version's latest run against the latest run of the previous version (sys-design Stage 4 section 5)."""
@@ -342,7 +366,7 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             cited = {e for a in answers.values() for s in a["steps"] for e in s["evidence"]}
             passages = {r["passage_id"]: dict(r) for r in c.execute(
                 f"SELECT p.passage_id, v.course_code AS course, p.version_id, p.week, f.filename, p.file_slug AS slug, "
-                f"p.page, p.text FROM passages p JOIN versions v ON v.id = p.version_id JOIN files f ON "
+                f"p.page, p.text, p.origin FROM passages p JOIN versions v ON v.id = p.version_id JOIN files f ON "
                 f"f.version_id = p.version_id AND f.slug = p.file_slug WHERE p.version_id IN (?, ?) "
                 f"AND p.passage_id IN ({','.join('?' * len(cited))})", (vid, cfg.get("prerequisite"), *cited))}
             questions = []
