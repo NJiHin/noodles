@@ -7,7 +7,7 @@ OPEN_FORMATS = ("take_home", "online_quiz")  # not invigilated
 # key -> (group in the review, title, advisory text, current formats it matches)
 RULES = {
     "fix_coverage": ("Fix coverage first", "Fix coverage first, then reassess",
-                     "A step has no source, or a citation the grounding checker rejected.", ()),
+                     "A step has no source, a citation the grounding checker rejected, or knowledge you rejected.", ()),
     "not_assessed": ("AI exposure not assessed", "AI exposure not assessed",
                      "There is no marking material, so there is no format recommendation.", ()),
     "review_untaught": ("Review the question", "Review: needs knowledge that's neither taught nor declared",
@@ -53,9 +53,12 @@ def recommend(q: dict) -> dict:
         key = "closed_book" if is_lookup(q) else "open_book_or_redesign"
     group, title, text, matches = RULES[key]
     if key == "fix_coverage" and (why := [
-            f"step {i} has no source" if s["source"] == "none" else f"step {i}'s citation was rejected by the grounding checker"
+            f"step {i} has no source" if s["source"] == "none" else
+            f"step {i} relies on knowledge you rejected" if (s.get("assumption") or {}).get("state") == "rejected" else
+            f"step {i}'s citation was rejected by the grounding checker"
             for i, s in enumerate(q["answer"]["steps"], 1)
-            if s["source"] == "none" or (s.get("grounding") or {}).get("verdict") == "unsupported"]):
+            if s["source"] == "none" or (s.get("grounding") or {}).get("verdict") == "unsupported"
+            or (s.get("assumption") or {}).get("state") == "rejected"]):
         text = "; ".join(why).capitalize() + "."
     n = len(q["answer"]["steps"])
     facts = []
@@ -65,7 +68,8 @@ def recommend(q: dict) -> dict:
     facts.append(f"{'Lookup' if is_lookup(q) else 'Reasoning'}: {n} knowledge step{'s' * (n != 1)}.")
     facts.append(f"Current format: {FORMAT_LABEL[q['current_format']]}.")
     if q["current_format"] in matches:
-        group, text = "Keep as is", f"Recommended: {title.lower()}, which is its current format."
+        group = "Keep as is"
+        text = f"Recommended: {title[0].lower() + title[1:]}. This matches the current format, {FORMAT_LABEL[q['current_format']]}."
         title = "Keep as is"
     return {"key": key, "group": group, "title": title, "text": text, "facts": " ".join(facts)}
 
@@ -79,6 +83,9 @@ def summary(questions: list[dict]) -> dict:
     for q in done:
         groups.setdefault(q["recommendation"]["group"], 0)
         groups[q["recommendation"]["group"]] += 1
+    unreviewed = [(q["question_id"], s["step_id"]) for q in done for s in q["answer"]["steps"]
+                  if (s.get("assumption") or {}).get("state") == "unreviewed"]
+    order = [q["question_id"] for q in done]
     assessments: dict[str, dict] = {}
     for q in done:
         a = assessments.setdefault(q["assessment_id"], {"assessment_id": q["assessment_id"], "week_cutoff": q["week_cutoff"],
@@ -88,8 +95,10 @@ def summary(questions: list[dict]) -> dict:
         a["groups"][g] = a["groups"].get(g, 0) + 1
     return {
         "assessed": len(done), "keep": groups.get("Keep as is", 0), "groups": groups,
-        "figures": {"gaps": sum(q["gap"] for q in done), "ai_exposed": sum(q["exposure"] == "ai_exposed" for q in done)},
-        "actions": [{"key": k, "questions": ids} for k, keys in ACTIONS if (ids := by_key(keys))],
+        "figures": {"gaps": sum(q["gap"] for q in done), "ai_exposed": sum(q["exposure"] == "ai_exposed" for q in done),
+                    "assumptions": len(unreviewed)},
+        "actions": [{"key": k, "questions": ids} for k, keys in ACTIONS if (ids := by_key(keys))]
+        + ([{"key": "confirm_assumptions", "questions": sorted({q for q, _ in unreviewed}, key=order.index)}] if unreviewed else []),
         "matrix": {cell: [q["question_id"] for q in done if q["exposure"] == cell]
                    for cell in ("ai_exposed", "course_specific", "neither_taught", "broken_or_gap")},
         "assessments": list(assessments.values()),

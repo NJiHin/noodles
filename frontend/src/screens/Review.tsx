@@ -31,8 +31,11 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
   }
 
   const qs = r?.questions ?? []
-  const groups: [string, ReviewQuestion[]][] = GROUPS.map((g) => [g, qs.filter((q) => (q.recommendation?.group ?? 'Not run yet') === g)])
-  const sel = qs.find((q) => q.question_id === qid) ?? groups.flatMap(([, g]) => g)[0]
+  // each group lists [question, line of text]; an unreviewed assumption also lists its question under "Confirm an assumption"
+  const groups: [string, [ReviewQuestion, string][]][] = GROUPS.map((g) => [g, g === ASSUME
+    ? qs.flatMap((q) => (q.answer?.steps ?? []).filter((s) => s.assumption?.state === 'unreviewed').map((s) => [q, `Assumes: ${s.claim}`] as [ReviewQuestion, string]))
+    : qs.filter((q) => (q.recommendation?.group ?? 'Not run yet') === g).map((q) => [q, q.text] as [ReviewQuestion, string])])
+  const sel = qs.find((q) => q.question_id === qid) ?? groups.flatMap(([, g]) => g)[0]?.[0]
   const running = r?.run?.status === 'running'
 
   return (
@@ -57,21 +60,21 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
           {groups.filter(([, g]) => g.length).map(([name, g]) => (
             <div key={name}>
               <div className="group"><span>{name}</span><span>{g.length}</span></div>
-              {g.map((q) => (
-                <a key={q.question_id} className={`item${q === sel ? ' on' : ''}${q.type === 'code' || q.recommendation?.group === 'Keep as is' ? ' done' : ''}`} href={`#/v/${vid}/review/${q.question_id}`}>
-                  <span className="id">{short(q)}</span><span className="t">{q.text}</span><span className="wk">{q.assessment_id}</span>
+              {g.map(([q, text], i) => (
+                <a key={`${q.question_id}-${i}`} className={`item${q === sel ? ' on' : ''}${q.type === 'code' || q.recommendation?.group === 'Keep as is' ? ' done' : ''}`} href={`#/v/${vid}/review/${q.question_id}`}>
+                  <span className="id">{short(q)}</span><span className="t">{text}</span><span className="wk">{q.assessment_id}</span>
                 </a>
               ))}
             </div>
           ))}
         </section>
-        <main className="detail">{sel ? <Detail q={sel} prereq={r?.prerequisite ?? null} runId={r?.run?.run_id ?? ''} reload={load} /> : <p className="muted">Confirm an assessment's questions, then start a test-drive.</p>}</main>
+        <main className="detail">{sel ? <Detail q={sel} prereq={r?.prerequisite ?? null} runId={r?.run?.run_id ?? ''} course={r?.course_code ?? ''} reload={load} /> : <p className="muted">Confirm an assessment's questions, then start a test-drive.</p>}</main>
       </div>
     </VersionShell>
   )
 }
 
-function Detail({ q, prereq, runId, reload }: { q: ReviewQuestion; prereq: string | null; runId: string; reload: () => void }) {
+function Detail({ q, prereq, runId, course, reload }: { q: ReviewQuestion; prereq: string | null; runId: string; course: string; reload: () => void }) {
   const a = q.answer
   return (
     <>
@@ -94,7 +97,7 @@ function Detail({ q, prereq, runId, reload }: { q: ReviewQuestion; prereq: strin
           <div className="steps">
             <h2>The student's steps</h2>
             {a.steps.length === 0 && <p className="muted">No knowledge steps listed.</p>}
-            <ol>{a.steps.map((s, i) => <StepItem key={s.step_id} s={s} n={i + 1} cutoff={q.week_cutoff} prereq={prereq} />)}</ol>
+            <ol>{a.steps.map((s, i) => <StepItem key={s.step_id} s={s} n={i + 1} cutoff={q.week_cutoff} prereq={prereq} course={course} reload={reload} />)}</ol>
           </div>
         </>
       )}
@@ -102,10 +105,12 @@ function Detail({ q, prereq, runId, reload }: { q: ReviewQuestion; prereq: strin
   )
 }
 
-function StepItem({ s, n, cutoff, prereq }: { s: Step; n: number; cutoff: number; prereq: string | null }) {
+function StepItem({ s, n, cutoff, prereq, course, reload }: { s: Step; n: number; cutoff: number; prereq: string | null; course: string; reload: () => void }) {
   const g = s.grounding
-  const cls = s.source === 'none' || g?.verdict === 'unsupported' ? ' miss' : g?.verdict === 'partial' ? ' thin'
-    : s.source === 'assumed_knowledge' ? ' ask' : ''
+  const as = s.assumption
+  const cls = s.source === 'none' || g?.verdict === 'unsupported' || as?.state === 'rejected' ? ' miss' : g?.verdict === 'partial' ? ' thin'
+    : as?.state === 'unreviewed' ? ' ask' : ''
+  const decide = async (decision: 'accepted' | 'rejected') => { await post(`/courses/${course}/assumptions`, { claim: s.claim, decision }); reload() }
   return (
     <li className={`s${cls}`}><span className="mark">{n}</span>
       <div className="card">
@@ -120,7 +125,16 @@ function StepItem({ s, n, cutoff, prereq }: { s: Step; n: number; cutoff: number
         ))}
         {g && <p className="why"><b>{GROUNDING[g.verdict]}</b> {g.verdict !== 'supported' && `Grounding checker: ${g.verdict}. `}{g.reason}</p>}
         {s.source === 'none' && <p className="why"><b>No source.</b> Not found in weeks 1 to {cutoff}{prereq ? ` or ${prereq}` : ''}, including the keyword re-check.</p>}
-        {s.source === 'assumed_knowledge' && <p className="why"><b>Assumed knowledge.</b> {s.accepted_id != null ? `Accepted assumption #${s.accepted_id}.` : s.reason}</p>}
+        {as?.state === 'unreviewed' && <>
+          <p className="why"><b>Assumed knowledge.</b> Student's reason: {s.reason || 'none given.'}</p>
+          <div className="decide">
+            <span>Is this fair to assume? Your decision is saved for this course and used from the next run.</span>
+            <button className="btn" onClick={() => decide('rejected')}>Reject, count as a gap</button>
+            <button className="btn primary" onClick={() => decide('accepted')}>Accept</button>
+          </div>
+        </>}
+        {as?.state === 'accepted' && <p className="why"><b>Accepted assumption #{as.id}.</b> {s.accepted_id === as.id ? 'Already decided, so not up for review.' : RERUN}</p>}
+        {as?.state === 'rejected' && <p className="why"><b>Rejected: counts as a gap.</b> {RERUN}</p>}
       </div>
     </li>
   )
@@ -159,8 +173,10 @@ function AnswerCard({ title, answer, mark, gap, sources, override }: {
 
 const host = (u: string) => { try { return new URL(u).hostname } catch { return u } }
 
-const GROUPS = ['Fix coverage first', 'Review the question', 'Change format', 'Could be open or take-home',
+const ASSUME = 'Confirm an assumption'
+const GROUPS = ['Fix coverage first', 'Review the question', 'Change format', 'Could be open or take-home', ASSUME,
   'AI exposure not assessed', 'Keep as is', 'Not run yet', 'Not assessed (code question)']
+const RERUN = 'Used from the next run. Each decision changes the student\'s prompt, so the next run reruns the student on every question: finish your review first.'
 const REC_CLASS: Record<string, string> = {
   'Fix coverage first': 'r-gap', 'Review the question': 'r-gap', 'Change format': 'r-format',
   'Could be open or take-home': 'r-keep', 'Keep as is': 'r-keep',

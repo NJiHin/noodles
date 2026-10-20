@@ -81,6 +81,13 @@ CREATE TABLE IF NOT EXISTS questions (
   marking_material TEXT,
   PRIMARY KEY (version_id, question_id)
 );
+CREATE TABLE IF NOT EXISTS assumed_knowledge (
+  id INTEGER PRIMARY KEY,
+  course_code TEXT NOT NULL REFERENCES courses(code),
+  claim TEXT NOT NULL,
+  decision TEXT NOT NULL CHECK (decision IN ('accepted', 'rejected')),
+  decided_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS verdict_overrides (
   run_id TEXT NOT NULL,
   question_id TEXT NOT NULL,

@@ -18,7 +18,8 @@ export type Assessment = {
 export const FORMAT_LABEL: Record<string, string> = { take_home: 'take-home', online_quiz: 'online quiz', invigilated_exam: 'invigilated exam' }
 export type Cited = { passage_id: string; course?: string; version_id?: string; week?: number; filename?: string; slug?: string; page?: number; text?: string }
 export type Step = { step_id: string; claim: string; source: 'course' | 'prerequisite' | 'assumed_knowledge' | 'none'; evidence: Cited[]; reason: string | null; accepted_id: number | null
-  grounding: { verdict: 'supported' | 'partial' | 'unsupported'; reason: string } | null }
+  grounding: { verdict: 'supported' | 'partial' | 'unsupported'; reason: string } | null
+  assumption: { state: 'accepted' | 'rejected' | 'unreviewed'; id?: number } | null }
 export type ReviewQuestion = {
   question_id: string; assessment_id: string; text: string; options: string[] | null; type: QType; week_cutoff: number; current_format: string
   answer: { final_answer: string | null; steps: Step[] } | null; gap: boolean
@@ -32,7 +33,7 @@ export type Mark = { verdict: Verdict; reason: string; by: 'code' | 'marker'; ov
 export type ReviewResp = { course_code: string; run: RunStatus | null; prerequisite: string | null; questions: ReviewQuestion[] }
 export type Summary = {
   course_code: string; run: RunStatus | null; assessed: number; keep: number; groups: Record<string, number>
-  figures: { gaps: number; ai_exposed: number }
+  figures: { gaps: number; ai_exposed: number; assumptions: number }
   actions: { key: string; questions: string[] }[]
   matrix: Record<'ai_exposed' | 'course_specific' | 'neither_taught' | 'broken_or_gap', string[]>
   assessments: { assessment_id: string; week_cutoff: number; current_format: string; segments: string[]; groups: Record<string, number> }[]

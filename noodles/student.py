@@ -111,10 +111,10 @@ Answer the exam question concisely, as in an exam. List the steps of your answer
 - "assumed_knowledge": something implied by the course's stated entry requirements (e.g. A-level maths, or the prerequisite course) that isn't in the provided materials. Give a one-line reason. Example: "Rearranging gives n = 2k + 1." with reason "The entry requirement is A-level maths, which covers basic algebra."
 - "none": subject knowledge the answer needs that you wouldn't already know and can't find in the course or prerequisite materials. Example: "Memoisation caches results." when no passage covers memoisation.
 Use "prerequisite" whenever the material exists there; use "assumed_knowledge" only when it doesn't. When unsure between "assumed_knowledge" and "none", choose "none".
-Cite only passage IDs you were shown. Leave evidence empty for "assumed_knowledge" and "none", and reason and accepted_id null unless stated above.
+Cite only passage IDs you were shown. Leave evidence empty for "assumed_knowledge" and "none", and reason and accepted_id null unless stated below.
 If you can't attempt the question, set final_answer to null and still list the steps you managed.
 
-To read the materials, call lookup_concept with the IDs of the topics you need (at most {max} calls; zero is fine). It returns every passage tagged with those topics. The topics you have been taught:
+{decided}To read the materials, call lookup_concept with the IDs of the topics you need (at most {max} calls; zero is fine). It returns every passage tagged with those topics. The topics you have been taught:
 {topics}"""
 
 RECHECK = """A keyword search of the materials you can see found passages for some of your uncited steps (numbered from 1 in your answer). For each step below, return its corrected label: "course" or "prerequisite" with the passage IDs that support it, or keep it "none" or "assumed_knowledge" (with its reason) if these passages don't cover it.
@@ -129,13 +129,34 @@ def tool(ids: list[str]) -> dict:
                            "properties": {"topic_ids": {"type": "array", "items": {"type": "string", "enum": ids}}}}}
 
 
+def decisions_of(conn: sqlite3.Connection, course: str) -> list[dict]:
+    """The professor's assumed-knowledge decisions for a course (carried across versions)."""
+    return [dict(r) for r in conn.execute("SELECT id, claim, decision FROM assumed_knowledge WHERE course_code = ? "
+                                          "ORDER BY id", (course,))]
+
+
+def decided_text(decisions: list[dict]) -> str:
+    """The decided claims section of the student prompt (empty if there are none)."""
+    acc = [f"#{d['id']}: {d['claim']}" for d in decisions if d["decision"] == "accepted"]
+    rej = [f"#{d['id']}: {d['claim']}" for d in decisions if d["decision"] == "rejected"]
+    out = ""
+    if acc:
+        out += ("Accepted claims: you may rely on these. A step that does is \"assumed_knowledge\" with accepted_id set "
+                "to the claim's number and reason null.\n" + "\n".join(acc) + "\n\n")
+    if rej:
+        out += ("Rejected claims: students are not assumed to know these. A step that needs one is \"none\".\n"
+                + "\n".join(rej) + "\n\n")
+    return out
+
+
 async def student(run: Run, conn: sqlite3.Connection, q: dict, course: str, target: str, prereq: str | None,
-                  prereq_course: str | None) -> dict:
+                  prereq_course: str | None, decisions: list[dict]) -> dict:
     """Run the student on one question, then the re-check. Returns the student output for the question."""
     n = q["week_cutoff"]
     listed = topics(conn, target, n, prereq)
     ids = [t["concept_id"] for t in listed]
     system = PROMPT.format(prereq=prereq_course or "no prerequisite courses", n=n, course=course, max=MAX_LOOKUPS,
+                           decided=decided_text(decisions),
                            topics="\n".join(f"{t['concept_id']} | {topic_label(t['name'], json.loads(t['aliases']))} | "
                                             f"{t['description'] or ''}" for t in listed) or "(none)")
     messages = [{"role": "system", "content": system}, {"role": "user", "content": question_text(q)}]
@@ -191,9 +212,11 @@ async def test_drive(run: Run, db_path: Path, course: str, target: str, prereq: 
     Each question's result is written to the run log."""
     conn = student_conn(db_path)
     try:
+        decisions = decisions_of(conn, course)
+
         async def one(q):
             async def course_side():
-                a = await student(run, conn, q, course, target, prereq, prereq_course)
+                a = await student(run, conn, q, course, target, prereq, prereq_course, decisions)
                 return a, await ground(run, conn, a, target, prereq)
             (answer, checks), web = await asyncio.gather(course_side(), web_agent(run, q))
             marks = None

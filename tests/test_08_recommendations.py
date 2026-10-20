@@ -72,7 +72,7 @@ def test_summary_counts_match_questions(client):
     assert recs == {"quiz-q1": "closed_book", "quiz-q2": "review_broken", "quiz-q3": "fix_coverage", "quiz-q4": "code"}
     s = client.get(f"/versions/{vid}/summary").json()
     assert s["assessed"] == 3 and s["keep"] == 0
-    assert s["figures"] == {"gaps": 1, "ai_exposed": 1}
+    assert s["figures"] == {"gaps": 1, "ai_exposed": 1, "assumptions": 0}
     assert [(a["key"], a["questions"]) for a in s["actions"]] == [
         ("fix_coverage", ["quiz-q3"]), ("review", ["quiz-q2"]), ("change_format", ["quiz-q1"])]
     assert s["matrix"] == {"ai_exposed": ["quiz-q1"], "course_specific": [], "neither_taught": [], "broken_or_gap": ["quiz-q2"]}

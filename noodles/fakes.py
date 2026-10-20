@@ -55,7 +55,7 @@ def fake_split(messages: list[dict]) -> dict:
 
 
 def fake_student(messages: list[dict], tools: list[dict] | None) -> list[dict] | dict:
-    """Looks up the first listed topic once, then cites the first passage it got and adds one uncited step."""
+    """Looks up the first listed topic once, then cites the first passage it got; adds an uncited and an assumed step."""
     outs = [m["output"] for m in messages if m.get("type") == "function_call_output"]
     if tools and not outs:
         ids = tools[0]["parameters"]["properties"]["topic_ids"]["items"]["enum"][:1]
@@ -64,7 +64,8 @@ def fake_student(messages: list[dict], tools: list[dict] | None) -> list[dict] |
     step = lambda claim, source, ev: {"claim": claim, "source": source, "evidence": ev, "reason": None, "accepted_id": None}
     cited = re.findall(r"^\[(\S+)\]", outs[0], re.M)[:1] if outs else []
     steps = [step("The cited passage covers this.", "course", cited)] if cited else []
-    return {"final_answer": "A", "steps": steps + [step("Memoisation caches earlier results.", "none", [])]}
+    assumed = {**step("Integers wrap around on overflow.", "assumed_knowledge", []), "reason": "Covered by the entry requirements."}
+    return {"final_answer": "A", "steps": steps + [step("Memoisation caches earlier results.", "none", []), assumed]}
 
 
 def fake_relabel(messages: list[dict]) -> dict:

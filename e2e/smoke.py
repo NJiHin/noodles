@@ -177,7 +177,24 @@ def slice08(page: Page, tmp: Path) -> None:
     expect(page.get_by_role("heading", name="The student's steps")).to_be_visible()
 
 
-SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08]
+def slice09(page: Page, tmp: Path) -> None:
+    """An unreviewed assumption is listed for review; rejecting it makes it a gap and says the next run reruns."""
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{STATE['version']}/summary")
+    expect(page.locator(".actions b", has_text="Confirm 1 assumption")).to_be_visible()
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{STATE['version']}/review")
+    item = page.locator(".item", has_text="Assumes: Integers wrap around on overflow.")
+    expect(item).to_be_visible()
+    item.click()
+    expect(page.get_by_text("Student's reason: Covered by the entry requirements.")).to_be_visible()
+    shot(page, "09-review-assumption")
+    page.get_by_role("button", name="Reject, count as a gap").click()
+    expect(page.get_by_text("Rejected: counts as a gap.")).to_be_visible()
+    expect(page.get_by_text("reruns the student on every question")).to_be_visible()
+    expect(item).to_have_count(0)
+    shot(page, "09-review-rejected")
+
+
+SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08, slice09]
 STATE: dict = {}
 
 

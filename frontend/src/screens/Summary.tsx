@@ -7,9 +7,10 @@ import { FORMAT_LABEL, type Summary as S } from '../types'
 const split = (id: string) => { const i = id.lastIndexOf('-q'); return [id.slice(i + 1).toUpperCase(), id.slice(0, i)] }
 
 const ACTIONS: Record<string, [string, (n: number) => string]> = {
-  fix_coverage: ['Fix coverage first', (n) => `${n} question${n === 1 ? ' has' : 's have'} a step with no source, or a citation the grounding checker rejected.`],
+  fix_coverage: ['Fix coverage first', (n) => `${n} question${n === 1 ? ' has' : 's have'} a step with no source, a citation the grounding checker rejected, or knowledge you rejected.`],
   review: ['Review the question', (n) => `${n} question${n === 1 ? '' : 's'} the course-limited student gets wrong: the question may be broken, or it needs knowledge that's neither taught nor declared.`],
   keep_open: ['Could be open or take-home', (n) => `${n} invigilated question${n === 1 ? '' : 's'} only the course-limited student answered. They already certify learning.`],
+  confirm_assumptions: ['Confirm assumptions', () => 'Steps the student treated as known from the entry requirements. Not counted as gaps until you reject them.'],
   change_format: ['Change format', (n) => `${n} AI-exposed question${n === 1 ? '' : 's'} in an open format. A lookup: closed-book, invigilated. Reasoning: open-book invigilated, or redesign.`],
 }
 const CELLS: [keyof S['matrix'], string, string, string][] = [
@@ -43,6 +44,7 @@ export function Summary({ vid }: { vid: string }) {
             <div className="figures">
               <div><b>{s.figures.gaps}</b>coverage gaps</div>
               <div><b>{s.figures.ai_exposed}</b>AI-exposed</div>
+              <div><b>{s.figures.assumptions}</b>assumptions to confirm</div>
             </div>
           </div>
 
@@ -54,11 +56,11 @@ export function Summary({ vid }: { vid: string }) {
                 {s.actions.map((a) => (
                   <li key={a.key}>
                     <div>
-                      <b>{ACTIONS[a.key][0]}</b>
+                      <b>{a.key === 'confirm_assumptions' ? `Confirm ${s.figures.assumptions} assumption${s.figures.assumptions === 1 ? '' : 's'}` : ACTIONS[a.key][0]}</b>
                       <p>{ACTIONS[a.key][1](a.questions.length)}</p>
-                      <div className="qs">{a.questions.map((id) => chip(id))}</div>
+                      {a.key !== 'confirm_assumptions' && <div className="qs">{a.questions.map((id) => chip(id))}</div>}
                     </div>
-                    <a className="btn" href={q(a.questions[0])}>Open</a>
+                    <a className="btn" href={q(a.questions[0])}>{a.key === 'confirm_assumptions' ? 'Review' : 'Open'}</a>
                   </li>
                 ))}
                 {s.actions.length === 0 && <li><div><b>Nothing to change</b><p>Every assessed question can stay as it is.</p></div></li>}

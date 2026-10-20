@@ -51,3 +51,6 @@
 .review .rec.r-keep { background: var(--ok-t); border-color: #C6E2D3; } .review .rec.r-keep b { color: var(--ok); }
 .review .rec p { color: var(--ink-2); font-size: 13.5px; margin-top: 2px; }
 .review .rec .facts { color: var(--ink-3); font-size: 12.5px; margin-top: 6px; }
+.review .s.ask .card { border-color: #C9CFF3; }
+.review .decide { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.review .decide span { flex: 1; color: var(--ink-2); font-size: 13px; }

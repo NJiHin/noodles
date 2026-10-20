@@ -6,6 +6,7 @@ import re
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Literal
 
 import shutil
 import tempfile
@@ -17,7 +18,7 @@ from pydantic import BaseModel
 from noodles import db
 from noodles.assessments import FORMATS, QuestionsError, SplitQuestion, confirmed_questions, flags, save_questions, split
 from noodles.coursemap import Concept, MapError, build_map, load_map, save_map
-from noodles.llm import OpenAIClient, Run, find_log, read_log
+from noodles.llm import OpenAIClient, Run, find_log, now, read_log
 from noodles.ollama import Ollama, OllamaError
 from noodles.student import test_drive
 from noodles.web import Verdict, exposure
@@ -37,6 +38,11 @@ class MapBody(BaseModel):
 
 class TestDriveBody(BaseModel):
     prerequisite: str | None = None  # course code; its latest reviewed version is used
+
+
+class DecisionBody(BaseModel):
+    claim: str
+    decision: Literal["accepted", "rejected"]
 
 
 class OverrideBody(BaseModel):
@@ -288,6 +294,7 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             recs = read_log(path) if path else []
             answers = {r["question_id"]: r for r in recs if r["type"] == "answer"}
             cfg = recs[0] if recs else {}
+            decisions = {r["id"]: dict(r) for r in c.execute("SELECT * FROM assumed_knowledge WHERE course_code = ?", (code,))}
             overrides = {(r["question_id"], r["agent"]): r["verdict"] for r in c.execute(
                 "SELECT * FROM verdict_overrides WHERE run_id = ?", (cfg.get("run_id"),))}
             cited = {e for a in answers.values() for s in a["steps"] for e in s["evidence"]}
@@ -309,8 +316,8 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                 if a:
                     g = {x["step_id"]: x for x in a.get("grounding", [])}
                     a = {**{k: v for k, v in a.items() if k != "grounding"},
-                         "steps": [{**s, "evidence": [seen(e) for e in s["evidence"]], "grounding": g.get(s["step_id"])}
-                                   for s in a["steps"]]}
+                         "steps": [{**s, "evidence": [seen(e) for e in s["evidence"]], "grounding": g.get(s["step_id"]),
+                                    "assumption": assumption(s, decisions)} for s in a["steps"]]}
                 marks = None
                 if a and a["marks"]:  # the professor's override replaces the verdict; the original is kept
                     marks = {k: {**m, "verdict": overrides[q["question_id"], k], "overridden": m["verdict"]}
@@ -319,11 +326,33 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                                   "answer": a and {k: v for k, v in a.items() if k not in ("web", "marks")},
                                   "web": a and a["web"], "marks": marks, "exposure": exposure(marks) if a else None,
                                   "gap": bool(a) and any(s["source"] == "none" or (s["grounding"] or {}).get("verdict")
-                                                         == "unsupported" for s in a["steps"])})
+                                                         == "unsupported" or (s["assumption"] or {}).get("state") == "rejected"
+                                                         for s in a["steps"])})
         for q in questions:
             q["recommendation"] = recommend(q) if q["answer"] or q["type"] == "code" else None
         return {"course_code": code, "run": run_status(path) if path else None,
                 "prerequisite": cfg.get("prerequisite_course"), "questions": questions}
+
+    @app.get("/courses/{code}/assumptions")
+    def list_assumptions(code: str):
+        with conn() as c:
+            return [dict(r) for r in c.execute("SELECT * FROM assumed_knowledge WHERE course_code = ? ORDER BY id", (code,))]
+
+    @app.post("/courses/{code}/assumptions")
+    def decide(code: str, body: DecisionBody):
+        """Accept or reject a claim for the course; the same claim decided again updates its decision."""
+        with conn() as c, c:
+            if not c.execute("SELECT 1 FROM courses WHERE code = ?", (code,)).fetchone():
+                raise HTTPException(404, "course not found")
+            row = c.execute("SELECT id FROM assumed_knowledge WHERE course_code = ? AND claim = ?",
+                            (code, body.claim)).fetchone()
+            if row:
+                c.execute("UPDATE assumed_knowledge SET decision = ?, decided_at = ? WHERE id = ?",
+                          (body.decision, now(), row["id"]))
+                return {"id": row["id"]}
+            cur = c.execute("INSERT INTO assumed_knowledge (course_code, claim, decision, decided_at) VALUES (?, ?, ?, ?)",
+                            (code, body.claim, body.decision, now()))
+            return {"id": cur.lastrowid}
 
     @app.put("/runs/{run_id}/overrides/{qid}/{agent}")
     def override(run_id: str, qid: str, agent: str, body: OverrideBody):
@@ -416,6 +445,18 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
         return FileResponse(path, media_type="application/pdf")
 
     return app
+
+
+def assumption(step: dict, decisions: dict[int, dict]) -> dict | None:
+    """Review state of an assumed_knowledge step: accepted (cites a valid accepted_id, skipped in review), decided
+    since the run (same claim), or unreviewed. An unknown or rejected accepted_id counts as unreviewed."""
+    if step["source"] != "assumed_knowledge":
+        return None
+    d = decisions.get(step["accepted_id"])
+    if d and d["decision"] == "accepted":
+        return {"state": "accepted", "id": d["id"]}
+    d = next((d for d in decisions.values() if d["claim"] == step["claim"]), None)
+    return {"state": d["decision"], "id": d["id"]} if d else {"state": "unreviewed"}
 
 
 def from_env() -> FastAPI:
