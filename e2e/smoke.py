@@ -37,8 +37,8 @@ def shot(page: Page, name: str) -> None:
 
 
 def slice01(page: Page, tmp: Path) -> dict:
-    files = {"Week01_Intro.pdf": make_pdf(["Welcome to CS1010", "Variables hold values"]),
-             "L2-loops.docx": make_docx(["Loops repeat a block of code."]),
+    files = {"Week01_Intro.pdf": make_pdf(["Welcome to CS1010. Variables hold values that a program can change.", "Fig. 1"]),
+             "L2-loops.docx": make_docx(["Loops repeat a block of code until a condition becomes false."]),
              "reading.pdf": make_pdf(["Extra reading on recursion"])}
     for n, b in files.items():
         (tmp / n).write_bytes(b)
@@ -63,7 +63,16 @@ def slice01(page: Page, tmp: Path) -> dict:
     return {"version": page.url.split("/v/")[1].split("/")[0]}
 
 
-SLICES = [slice01]
+def slice02(page: Page, tmp: Path) -> None:
+    """The materials page marks pages transcribed by the (fake) VLM."""
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{STATE['version']}/materials")
+    page.get_by_text("Week01_Intro.pdf").click()
+    expect(page.get_by_text("vlm", exact=True).first).to_be_visible()
+    shot(page, "02-materials-vlm")
+
+
+SLICES = [slice01, slice02]
+STATE: dict = {}
 
 
 def main() -> None:
@@ -89,10 +98,9 @@ def main() -> None:
                 page = browser.new_page(viewport={"width": 1440, "height": 900})
                 errors: list[str] = []
                 page.on("pageerror", lambda e: errors.append(str(e)))
-                state: dict = {}
                 for fn in SLICES[: args.slice]:
                     print(f"-- {fn.__name__}")
-                    state |= fn(page, tmp) or {}
+                    STATE.update(fn(page, tmp) or {})
                     assert not errors, errors
                 browser.close()
             print(f"smoke OK, screenshots in {SHOTS}")

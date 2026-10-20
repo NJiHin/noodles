@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from reportlab.pdfgen import canvas
 
 from noodles.api import create_app
+from noodles.fakes import FakeOllama
 
 
 def make_pdf(pages: list[str]) -> bytes:
@@ -33,7 +34,7 @@ def make_docx(paragraphs: list[str]) -> bytes:
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app(data_dir=tmp_path / "data", runs_dir=tmp_path / "runs")
+    return create_app(data_dir=tmp_path / "data", runs_dir=tmp_path / "runs", ollama=FakeOllama())
 
 
 @pytest.fixture

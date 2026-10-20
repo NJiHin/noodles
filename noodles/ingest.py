@@ -1,8 +1,10 @@
 """Stage 0: uploaded files -> stored PDFs -> one passage per page."""
 import hashlib
+import io
 import json
 import re
 import shutil
+import string
 import sqlite3
 import subprocess
 import tempfile
@@ -11,10 +13,17 @@ from pathlib import Path
 
 import opendataloader_pdf
 import pypdfium2
+import pypdfium2.raw as pdfium_c
 
 ACCEPTED = {".pdf", ".pptx", ".docx"}
 LEGACY = {".ppt", ".doc"}
 PAGE_MARK = "<<<NOODLES PAGE %page-number%>>>"
+
+# Flagging thresholds (sys-design Stage 0, step 4). shortcut: guesses, set them on the demo courses (slice 02 pilot).
+MIN_TEXT = 40          # characters; fewer is "very little text"
+GARBLED_RATIO = 0.3    # share of non-space characters outside letters, digits and common punctuation
+MIN_PATHS = 20         # vector path objects; this many or more is a drawing
+PLAIN = set(string.ascii_letters + string.digits + string.punctuation + "–—‘’“”•…·°×")
 
 
 class IngestError(Exception):
@@ -84,27 +93,74 @@ def to_pdf(src: Path, dest: Path) -> None:
         shutil.move(out, dest)
 
 
-def parse_pdfs(pdfs: list[Path]) -> dict[Path, list[str]]:
-    """OpenDataLoader (fast mode) text per page, in reading order. Every page gets an entry."""
-    out: dict[Path, list[str]] = {}
+def _element_types(elements: list, types: dict[int, set[str]]) -> None:
+    for e in elements:
+        if "page number" in e:
+            types.setdefault(e["page number"], set()).add(e.get("type", ""))
+        for key in ("kids", "list items", "rows", "cells"):
+            _element_types(e.get(key, []), types)
+
+
+def parse_pdfs(pdfs: list[Path]) -> dict[Path, list[dict]]:
+    """Per page: OpenDataLoader (fast mode) text in reading order, its element types, and the
+    pypdfium2 vector path count. Every page gets an entry."""
+    out: dict[Path, list[dict]] = {}
     with tempfile.TemporaryDirectory() as tmp:
-        opendataloader_pdf.convert([str(p) for p in pdfs], output_dir=tmp, format="text",
+        opendataloader_pdf.convert([str(p) for p in pdfs], output_dir=tmp, format="text,json",
                                    image_output="off", quiet=True, include_header_footer=True,
-                                   text_page_separator=PAGE_MARK)
+                                   replace_invalid_chars="\ufffd", text_page_separator=PAGE_MARK)
         for pdf in pdfs:
-            n = len(pypdfium2.PdfDocument(pdf))
-            pages = [""] * n
-            txt = Path(tmp) / f"{pdf.stem}.txt"
+            doc = pypdfium2.PdfDocument(pdf)
+            pages = [{"text": "", "types": set(),
+                      "paths": sum(1 for o in pg.get_objects() if o.type == pdfium_c.FPDF_PAGEOBJ_PATH)}
+                     for pg in doc]
+            txt, js = Path(tmp) / f"{pdf.stem}.txt", Path(tmp) / f"{pdf.stem}.json"
             raw = txt.read_text() if txt.exists() else ""
             for m in re.finditer(r"<<<NOODLES PAGE (\d+)>>>\n?(.*?)(?=<<<NOODLES PAGE \d+>>>|\Z)", raw, re.S):
                 i = int(m.group(1))
-                if 1 <= i <= n:
-                    pages[i - 1] = m.group(2).strip()
+                if 1 <= i <= len(pages):
+                    pages[i - 1]["text"] = m.group(2).strip()
+            types: dict[int, set[str]] = {}
+            if js.exists():
+                _element_types(json.loads(js.read_text()).get("kids", []), types)
+            for i, t in types.items():
+                if 1 <= i <= len(pages):
+                    pages[i - 1]["types"] = t
             out[pdf] = pages
     return out
 
 
-def ingest(conn: sqlite3.Connection, files_dir: Path, code: str, staged: list[Path], weeks: dict[str, int]) -> str:
+def flag_reasons(page: dict) -> list[str]:
+    """Why a parsed page needs VLM transcription (sys-design Stage 0, step 4). Empty = keep parser text."""
+    text = page["text"]
+    chars = [ch for ch in text if not ch.isspace()]
+    reasons = []
+    if page["types"] & {"image", "table"}:
+        reasons.append("image or table")
+    if len(chars) < MIN_TEXT:
+        reasons.append("little text")
+    elif sum(ch not in PLAIN for ch in chars) / len(chars) > GARBLED_RATIO:
+        reasons.append("garbled text")
+    if page["paths"] >= MIN_PATHS:
+        reasons.append("vector drawing")
+    return reasons
+
+
+def transcribe_flagged(pdf: Path, pages: list[dict], vlm) -> list[tuple[str, str]]:
+    """(text, origin) per page: VLM markdown for flagged pages, parser text for the rest."""
+    doc = pypdfium2.PdfDocument(pdf)
+    out = []
+    for i, p in enumerate(pages):
+        if not flag_reasons(p):
+            out.append((p["text"], "parser"))
+            continue
+        buf = io.BytesIO()
+        doc[i].render(scale=2).to_pil().save(buf, "PNG")
+        out.append((vlm.transcribe(buf.getvalue()), "vlm"))
+    return out
+
+
+def ingest(conn: sqlite3.Connection, files_dir: Path, code: str, staged: list[Path], weeks: dict[str, int], vlm) -> str:
     """Store, parse and write a version. Reuses an existing version with the same ID."""
     files = [(p.name, p.read_bytes(), weeks[p.name]) for p in staged]
     vid = version_id(code, files)
@@ -118,7 +174,8 @@ def ingest(conn: sqlite3.Connection, files_dir: Path, code: str, staged: list[Pa
         pdfs = [work / f"{s}.pdf" for s in slugs]
         for src, pdf in zip(staged, pdfs):
             to_pdf(src, pdf)
-        pages = parse_pdfs(pdfs)
+        parsed = parse_pdfs(pdfs)
+        pages = {pdf: transcribe_flagged(pdf, parsed[pdf], vlm) for pdf in pdfs}
 
         try:
             with conn:  # PDFs move inside the transaction, so DB rows and stored files land together
@@ -131,9 +188,9 @@ def ingest(conn: sqlite3.Connection, files_dir: Path, code: str, staged: list[Pa
                                  (vid, slug, src.name, week))
                     conn.executemany(
                         "INSERT INTO passages (version_id, passage_id, file_slug, week, page, text, origin) "
-                        "VALUES (?, ?, ?, ?, ?, ?, 'parser')",
-                        [(vid, f"{code}-w{week}-{slug}-p{i}", slug, week, i, text)
-                         for i, text in enumerate(pages[pdf], 1)])
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        [(vid, f"{code}-w{week}-{slug}-p{i}", slug, week, i, text, origin)
+                         for i, (text, origin) in enumerate(pages[pdf], 1)])
                 shutil.rmtree(dest, ignore_errors=True)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(work, dest)

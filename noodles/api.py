@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from noodles import db
+from noodles.ollama import Ollama, OllamaError
 from noodles.ingest import IngestError, check_upload_name, guess_week, ingest
 
 ID = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -20,10 +21,11 @@ class ConfirmWeeks(BaseModel):
     weeks: dict[str, int]
 
 
-def create_app(data_dir: Path, runs_dir: Path) -> FastAPI:
+def create_app(data_dir: Path, runs_dir: Path, ollama=None) -> FastAPI:
     data_dir, runs_dir = Path(data_dir), Path(runs_dir)
     db_path, files_dir, uploads_dir = data_dir / "noodles.db", data_dir / "files", data_dir / "uploads"
     db.init(db_path)
+    vlm = ollama or Ollama()
     app = FastAPI(title="noodles")
 
     @contextmanager
@@ -84,9 +86,11 @@ def create_app(data_dir: Path, runs_dir: Path) -> FastAPI:
             raise HTTPException(422, f"confirm a week (1 or more) for every file: {', '.join(missing)}")
         with conn() as c:
             try:
-                return {"version_id": ingest(c, files_dir, code, staged, body.weeks)}
+                return {"version_id": ingest(c, files_dir, code, staged, body.weeks, vlm)}
             except IngestError as e:
                 raise HTTPException(422, str(e))
+            except OllamaError as e:
+                raise HTTPException(503, str(e))
 
     @app.get("/versions/{vid}/files")
     def version_files(vid: str):
@@ -114,4 +118,9 @@ def create_app(data_dir: Path, runs_dir: Path) -> FastAPI:
 
 
 def from_env() -> FastAPI:
-    return create_app(Path(os.environ.get("NOODLES_DATA", "data")), Path(os.environ.get("NOODLES_RUNS", "runs")))
+    """NOODLES_DATA / NOODLES_RUNS dirs; NOODLES_FAKE=1 swaps in fake model clients (no model calls)."""
+    fake = os.environ.get("NOODLES_FAKE") == "1"
+    if fake:
+        from noodles.fakes import FakeOllama
+    return create_app(Path(os.environ.get("NOODLES_DATA", "data")), Path(os.environ.get("NOODLES_RUNS", "runs")),
+                      ollama=FakeOllama() if fake else None)

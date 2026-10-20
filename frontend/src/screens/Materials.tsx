@@ -6,6 +6,8 @@ type Page = { passage_id: string; page: number; text: string; origin: 'parser' |
 type File = { slug: string; filename: string; week: number; pages: Page[] }
 type Version = { version_id: string; course_code: string; created_at: string; files: File[] }
 
+const vlmCount = (f: File) => f.pages.filter((p) => p.origin === 'vlm').length
+
 /** Every file and page of a version, grouped by week; each page opens its source PDF. */
 export function Materials({ vid }: { vid: string }) {
   const [v, setV] = useState<Version | null>(null)
@@ -30,10 +32,13 @@ export function Materials({ vid }: { vid: string }) {
                 <div className="week-h">Week {w}</div>
                 {v.files.filter((f) => f.week === w).map((f) => (
                   <details className="file" key={f.slug}>
-                    <summary><b>{f.filename}</b><small>{f.pages.length} page{f.pages.length === 1 ? '' : 's'}</small></summary>
+                    <summary><b>{f.filename}</b><small>{f.pages.length} page{f.pages.length === 1 ? '' : 's'}</small>{vlmCount(f) > 0 && <small>· {vlmCount(f)} transcribed (vlm)</small>}</summary>
                     {f.pages.map((p) => (
                       <div className="pg" key={p.passage_id}>
-                        <a href={pdfHref(vid, f.slug, p.page)} target="_blank" rel="noreferrer">Page {p.page}</a>
+                        <div>
+                          <a href={pdfHref(vid, f.slug, p.page)} target="_blank" rel="noreferrer">Page {p.page}</a>
+                          {p.origin === 'vlm' && <div><span className="v n" title="Transcribed from the page image by the VLM">vlm</span></div>}
+                        </div>
                         <p>{p.text || <span className="muted">No text on this page.</span>}</p>
                       </div>
                     ))}

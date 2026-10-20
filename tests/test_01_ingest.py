@@ -3,6 +3,8 @@ import pytest
 from conftest import ingest, make_docx, make_pdf, upload
 from noodles.ingest import guess_week
 
+LONG = "A recursive function calls itself on a smaller input."
+
 
 @pytest.mark.parametrize("name", ["old.ppt", "old.doc"])
 def test_legacy_office_rejected_with_resave_message(client, name):
@@ -38,7 +40,7 @@ def test_same_slug_files_get_distinct_slugs(client):
 
 
 def test_three_page_pdf_gives_three_parser_passages(client):
-    v = ingest(client, "CS1010", [("slides.pdf", make_pdf(["page one", "page two", "page three"]))],
+    v = ingest(client, "CS1010", [("slides.pdf", make_pdf([f"This is page {w} of the recursion lecture slides." for w in ("one", "two", "three")]))],
                {"slides.pdf": 5})
     f = client.get(f"/versions/{v}/files").json()["files"][0]
     assert [p["passage_id"] for p in f["pages"]] == [f"CS1010-w5-slides-p{i}" for i in (1, 2, 3)]
@@ -55,7 +57,7 @@ def test_version_id_is_fingerprint_of_files_and_weeks(client):
 
 
 def test_stored_pdf_served_and_page_count_matches(client):
-    v = ingest(client, "CS1010", [("slides.pdf", make_pdf(["1", "2", "3"]))], {"slides.pdf": 5})
+    v = ingest(client, "CS1010", [("slides.pdf", make_pdf([LONG] * 3))], {"slides.pdf": 5})
     r = client.get(f"/files/{v}/slides.pdf")
     assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
     import pypdfium2
@@ -63,7 +65,7 @@ def test_stored_pdf_served_and_page_count_matches(client):
 
 
 def test_docx_converted_to_pdf_before_parsing(client):
-    v = ingest(client, "CS1010", [("Week2_notes.docx", make_docx(["Loops repeat a block of code."]))],
+    v = ingest(client, "CS1010", [("Week2_notes.docx", make_docx(["Loops repeat a block of code until a condition becomes false."]))],
                {"Week2_notes.docx": 2})
     f = client.get(f"/versions/{v}/files").json()["files"][0]
     assert "Loops repeat" in f["pages"][0]["text"]
