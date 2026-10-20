@@ -1,0 +1,21 @@
+/* Screens not on the canvas boards, in the c-shell style. */
+#root { display: contents; } /* the c-shell grid sits on body */
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
+.field input, .field select, td input, td select { font: 14px var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; background: var(--surface); color: var(--ink); }
+.row-form { display: flex; gap: 14px; align-items: end; flex-wrap: wrap; margin-top: 14px; }
+.err { color: var(--bad); font-size: 13px; margin-top: 10px; }
+table.t { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13.5px; }
+table.t th { text-align: left; font-weight: 500; color: var(--ink-3); font-size: 12.5px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: top; }
+.list-plain { list-style: none; padding: 0; margin-top: 10px; }
+.list-plain li { padding: 10px 0; border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; }
+.list-plain li small { color: var(--ink-3); }
+.week-h { font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 18px 0 4px; }
+.file { border-top: 1px solid var(--line); padding: 12px 0; }
+.file summary { cursor: pointer; display: flex; gap: 12px; align-items: baseline; }
+.file summary b { font-weight: 600; }
+.file summary small { color: var(--ink-3); }
+.pg { display: grid; grid-template-columns: 70px 1fr; gap: 12px; padding: 8px 0 8px 16px; font-size: 13px; color: var(--ink-2); }
+.pg a { color: var(--accent); text-decoration: none; font-weight: 500; }
+.pg p { white-space: pre-wrap; max-height: 7.5em; overflow: hidden; }
+.muted { color: var(--ink-3); }

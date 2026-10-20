@@ -4,4 +4,27 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "fastapi>=0.151.0",
+    "httpx>=0.28.1",
+    "openai>=3.35.1",
+    "opendataloader-pdf>=2.5.13",
+    "pypdfium2>=5.14.0",
+    "python-multipart>=0.0.32",
+    "uvicorn>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "playwright>=1.64.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "python-docx>=1.2.0",
+    "python-pptx>=1.0.2",
+    "reportlab>=5.0.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tests"]
+asyncio_mode = "auto"
