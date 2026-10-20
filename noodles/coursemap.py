@@ -60,6 +60,8 @@ ORCH_PROMPT = """You merge weekly topic records of one course into a course map,
 - concept_id: "<course>:<short-lowercase-name>", e.g. "CS1010:recursion".
 - description: one optional line on how the course covers the topic.
 - occurrences: one per week the topic appears in, with that week's depth and evidence IDs copied exactly.
+- previous_concepts are the course's topics from its previous reviewed version, a reference for merging only:
+  reuse a concept_id when a topic is the same; add new concepts freely when a topic is new.
 Do not invent topics, weeks or evidence."""
 
 
@@ -80,12 +82,13 @@ async def extract_week(run: Run, week: int, passages: list) -> WeekRecords:
                           WeekRecords)
 
 
-async def build_map(run: Run, conn: sqlite3.Connection, code: str, vid: str) -> MergedMap:
-    """Run the extractors (in parallel) and the orchestrator; write the draft to the run log."""
+async def build_map(run: Run, conn: sqlite3.Connection, code: str, vid: str, previous: list[dict]) -> MergedMap:
+    """Run the extractors (in parallel) and the orchestrator; write the draft to the run log.
+    previous: the previous reviewed version's concepts (concept_id, name, aliases), or [] on a first version."""
     by_week = [(w, list(ps)) for w, ps in groupby(version_passages(conn, vid), key=lambda p: p["week"])]
     records = await asyncio.gather(*(extract_week(run, w, ps) for w, ps in by_week))
     weekly = {str(w): r.model_dump()["concepts"] for (w, _), r in zip(by_week, records)}
-    body = json.dumps({"course": code, "weeks": weekly}, indent=1)
+    body = json.dumps({"course": code, "previous_concepts": previous, "weeks": weekly}, indent=1)
     merged = await run.call("orchestrator", SOL, ORCH_V,
                             [{"role": "system", "content": ORCH_PROMPT}, {"role": "user", "content": body}], MergedMap)
     seen: set[str] = set()

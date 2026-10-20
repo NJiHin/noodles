@@ -55,3 +55,8 @@ table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: to
 .q-top .del { margin-left: auto; padding: 4px 10px; }
 .q-edit textarea { font: 14px/1.45 var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; resize: vertical; color: var(--ink); background: var(--surface); }
 .q-edit textarea.mm, .q-edit textarea.opts { font-size: 13px; color: var(--ink-2); background: var(--bg); }
+.id-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 12px; font-size: 13px; }
+.id-diff div { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.id-diff b { width: 100%; font-weight: 600; color: var(--ink-2); }
+.id-diff .chip { border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; font-size: 12.5px; background: var(--bg); }
+.id-diff .chip select { font: 12px var(--sans); margin-left: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }

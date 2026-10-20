@@ -146,3 +146,39 @@ def learning_path(concepts: list[dict], questions: list[dict]) -> dict:
                 s["claim"] for s in q["answer"]["steps"] if s["source"] == "none"
                 or (s.get("grounding") or {}).get("verdict") == "unsupported"
                 or (s.get("assumption") or {}).get("state") == "rejected"]} for q in questions if q["gap"]]}
+
+
+def _facts(q: dict) -> dict:
+    m = q["marks"] or {}
+    return {"student_verdict": m.get("student", {}).get("verdict"), "web_verdict": m.get("web", {}).get("verdict"),
+            "exposure": q["exposure"], "gap": q["gap"], "recommendation": (q["recommendation"] or {}).get("group")}
+
+
+def changes(cur: list[dict], old: list[dict], cur_map: list[dict], old_map: list[dict]) -> dict:
+    """Questions matched by question_id, topics by concept_id. Only questions with results in both runs are compared."""
+    before = {q["question_id"]: q for q in old}
+    questions = []
+    for q in cur:
+        p = before.get(q["question_id"])
+        if not p or not q["answer"] or not p["answer"]:
+            continue
+        a, b = _facts(q), _facts(p)
+        fields = [{"field": k, "before": b[k], "after": a[k]} for k in a if a[k] != b[k]]
+        if fields or q["text"] != p["text"]:
+            questions.append({"question_id": q["question_id"], "edited": q["text"] != p["text"], "fields": fields})
+    depth = lambda m: {(c["concept_id"], o["week"]): o["depth"] for c in m for o in c["occurrences"]}
+    names = {c["concept_id"]: c["name"] for c in old_map} | {c["concept_id"]: c["name"] for c in cur_map}
+    d_old, d_cur = depth(old_map), depth(cur_map)
+    ids_old, ids_cur = {c["concept_id"] for c in old_map}, {c["concept_id"] for c in cur_map}
+    depth_changes = [{"concept_id": cid, "name": names[cid], "week": w, "before": d_old.get((cid, w)), "after": d_cur.get((cid, w))}
+                     for cid, w in sorted(d_old.keys() | d_cur.keys())
+                     if cid in ids_old & ids_cur and d_old.get((cid, w)) != d_cur.get((cid, w))]
+    gap = lambda x: next((f for f in x["fields"] if f["field"] == "gap"), None)
+    added = [{"concept_id": i, "name": names[i]} for i in sorted(ids_cur - ids_old)]
+    removed = [{"concept_id": i, "name": names[i]} for i in sorted(ids_old - ids_cur)]
+    return {"questions": questions, "map": {"depth": depth_changes, "added": added, "removed": removed},
+            "counts": {"gaps_fixed": sum(bool(g := gap(x)) and not g["after"] for x in questions),
+                       "new_gaps": sum(bool(g := gap(x)) and g["after"] for x in questions),
+                       "edited": sum(x["edited"] for x in questions),
+                       "results": sum(bool(x["fields"]) for x in questions),
+                       "depth": len(depth_changes), "topics": len(added) + len(removed)}}

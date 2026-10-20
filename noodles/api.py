@@ -22,7 +22,7 @@ from noodles.llm import OpenAIClient, Run, find_log, now, read_log
 from noodles.ollama import Ollama, OllamaError
 from noodles.student import test_drive
 from noodles.web import Verdict, exposure
-from noodles.report import learning_path, recommend, summary
+from noodles.report import changes, learning_path, recommend, summary
 from noodles.ingest import IngestError, check_upload_name, guess_week, ingest, read_document, slugify
 
 ID = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -122,6 +122,14 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                     "stage": f"Student answering, {answered} of {len(cfg['questions'])} questions"}
         return out
 
+    def previous_version(c, v, reviewed: bool = False, with_run: bool = False) -> str | None:
+        """The latest earlier version of the same course (optionally with a reviewed map, or with a test-drive run)."""
+        for r in c.execute("SELECT * FROM versions WHERE course_code = ? AND created_at < ? ORDER BY created_at DESC",
+                           (v["course_code"], v["created_at"])):
+            if (not reviewed or r["map_reviewed_at"]) and (not with_run or latest_run(r["course_code"], r["id"], "test_drive")):
+                return r["id"]
+        return None
+
     def latest_run(code: str, vid: str, kind: str, **match) -> Path | None:
         for path in sorted((runs_dir / code / vid).glob("*.jsonl"), reverse=True):
             cfg = read_log(path)[0]
@@ -141,9 +149,12 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
         with conn() as c:
             v = version_row(c, vid)
             weeks = [r[0] for r in c.execute("SELECT DISTINCT week FROM passages WHERE version_id = ? ORDER BY week", (vid,))]
+            prev = previous_version(c, v, reviewed=True)
+            previous = [{"concept_id": r["concept_id"], "name": r["name"], "aliases": json.loads(r["aliases"])} for r in
+                        c.execute("SELECT * FROM concepts WHERE version_id = ? ORDER BY concept_id", (prev,))] if prev else []
         code = v["course_code"]
-        return {"run_id": start_job(code, vid, {"kind": "map", "weeks": weeks},
-                                    lambda run, c: build_map(run, c, code, vid))}
+        return {"run_id": start_job(code, vid, {"kind": "map", "weeks": weeks, "previous_version": prev},
+                                    lambda run, c: build_map(run, c, code, vid, previous))}
 
     @app.get("/versions/{vid}/map")
     def get_map(vid: str):
@@ -162,7 +173,13 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             state, concepts = "reviewed", reviewed
         else:
             state, concepts = "none", []
-        return {"version_id": vid, "course_code": v["course_code"], "state": state,
+        id_diff = None
+        with conn() as c:
+            if prev := previous_version(c, v, reviewed=True):  # a rename shows up as one disappeared and one new ID
+                before = {r[0] for r in c.execute("SELECT concept_id FROM concepts WHERE version_id = ?", (prev,))}
+                now_ids = {x["concept_id"] for x in concepts}
+                id_diff = {"previous_version": prev, "disappeared": sorted(before - now_ids), "new": sorted(now_ids - before)}
+        return {"version_id": vid, "course_code": v["course_code"], "state": state, "id_diff": id_diff,
                 "reviewed_at": v["map_reviewed_at"], "run": run, "concepts": concepts, "passages": passages}
 
     @app.put("/versions/{vid}/map")
@@ -284,6 +301,22 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
     def get_summary(vid: str):
         r = get_review(vid)
         return {"course_code": r["course_code"], "run": r["run"], **summary(r["questions"])}
+
+    @app.get("/versions/{vid}/changes")
+    def get_changes(vid: str):
+        """This version's latest run against the latest run of the previous version (sys-design Stage 4 section 5)."""
+        with conn() as c:
+            v = version_row(c, vid)
+            prev = previous_version(c, v, with_run=True)
+            maps = {x: load_map(c, x) for x in (vid, prev) if x}
+            prev_row = prev and dict(version_row(c, prev))
+        cur = get_review(vid)
+        if not prev or not cur["run"]:
+            return {"course_code": v["course_code"], "run": cur["run"], "previous": None}
+        old = get_review(prev)
+        return {"course_code": v["course_code"], "run": cur["run"],
+                "previous": {"version_id": prev, "created_at": prev_row["created_at"], "run": old["run"]},
+                **changes(cur["questions"], old["questions"], maps[vid], maps[prev])}
 
     @app.get("/versions/{vid}/learning-path")
     def get_learning_path(vid: str):

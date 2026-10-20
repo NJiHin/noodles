@@ -204,7 +204,50 @@ def slice10(page: Page, tmp: Path) -> None:
     shot(page, "10-learning-path")
 
 
-SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08, slice09, slice10]
+def api_wait(run_id: str) -> None:
+    end = time.time() + 30
+    while httpx.get(f"http://127.0.0.1:{API}/runs/{run_id}").json()["status"] == "running":
+        assert time.time() < end, run_id
+        time.sleep(0.2)
+
+
+def slice11(page: Page, tmp: Path) -> None:
+    """A re-upload with one file edited: map ID diff, then the changes page and markers after a new test-drive."""
+    a = f"http://127.0.0.1:{API}"
+    files = {"Week01_Intro.pdf": make_pdf(["Welcome to CS1010. Variables hold values that a program can change.", "Fig. 1"]),
+             "L2-loops.docx": make_docx(["Loops repeat a block of code until a condition becomes false."]),
+             "reading.pdf": make_pdf(["Further reading on sorting"])}
+    up = httpx.post(f"{a}/courses/CS1010/uploads", files=[("files", (n, b)) for n, b in files.items()]).json()
+    v2 = httpx.post(f"{a}/courses/CS1010/versions", timeout=120,
+                    json={"upload_id": up["upload_id"], "weeks": {"Week01_Intro.pdf": 1, "L2-loops.docx": 2, "reading.pdf": 2}}).json()["version_id"]
+    api_wait(httpx.post(f"{a}/versions/{v2}/map-runs").json()["run_id"])
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{v2}/map")
+    expect(page.get_by_role("heading", name="Topic IDs since the previous version")).to_be_visible()
+    shot(page, "11-map-id-diff")
+    expect(page.locator(".id-diff .chip", has_text="CS1010:loops-repeat")).to_be_visible()
+    shot(page, "11-map-id-diff")
+    page.get_by_role("button", name="Confirm map").click()
+    expect(page.get_by_text("Confirmed:")).to_be_visible()
+    r = httpx.post(f"{a}/versions/{v2}/assessments", data={"name": "Week 4 quiz", "week_cutoff": 2, "current_format": "online_quiz"},
+                   files={"paper": ("quiz.pdf", (tmp / "quiz.pdf").read_bytes()),
+                          "answers": ("quiz-answers.pdf", (tmp / "quiz-answers.pdf").read_bytes())}, timeout=120).json()
+    api_wait(r["run_id"])
+    qs = httpx.get(f"{a}/versions/{v2}/assessments").json()[0]["questions"]
+    httpx.put(f"{a}/versions/{v2}/assessments/week-4-quiz/questions", json={"questions": [
+        {k: q[k] for k in ("question_id", "text", "options", "type", "marking_material")} for q in qs]}).raise_for_status()
+    api_wait(httpx.post(f"{a}/versions/{v2}/test-drives", json={"prerequisite": None}).json()["run_id"])
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{v2}/changes")
+    expect(page.get_by_role("heading", name="Changes since last run")).to_be_visible()
+    expect(page.get_by_text("with changed results")).to_be_visible()
+    expect(page.locator(".oc a.q", has_text="Q1")).to_be_visible()  # the web override was on the previous run only
+    shot(page, "11-changes")
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{v2}/review")
+    expect(page.locator(".item .chg").first).to_be_visible()
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{STATE['version']}/changes")
+    expect(page.get_by_text("There is no previous run to compare with")).to_be_visible()
+
+
+SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08, slice09, slice10, slice11]
 STATE: dict = {}
 
 

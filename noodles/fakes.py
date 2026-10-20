@@ -28,12 +28,13 @@ def fake_extract(messages: list[dict]) -> dict:
 
 
 def fake_orchestrate(messages: list[dict]) -> dict:
-    """Group weekly records by name; ID from the name."""
+    """Group weekly records by name; ID from the name, or the previous version's ID for the same name."""
     data = json.loads(_user(messages))
+    known = {c["name"]: c["concept_id"] for c in data.get("previous_concepts", [])}
     merged: dict[str, dict] = {}
     for week, records in data["weeks"].items():
         for r in records:
-            c = merged.setdefault(r["name"], {"concept_id": f"{data['course']}:{r['name'].replace(' ', '-')}",
+            c = merged.setdefault(r["name"], {"concept_id": known.get(r["name"], f"{data['course']}:{r['name'].replace(' ', '-')}"),
                                               "name": r["name"], "aliases": [], "description": r["description"],
                                               "occurrences": []})
             occ = next((o for o in c["occurrences"] if o["week"] == int(week)), None)

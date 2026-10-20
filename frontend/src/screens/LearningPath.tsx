@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { api, pdfHref } from '../api'
 import { VersionShell } from '../Shell'
-import type { Cited } from '../types'
+import type { Changes, Cited } from '../types'
 
 type Topic = {
   concept_id: string; name: string; depths: Record<string, string>; questions: string[]
@@ -19,7 +19,13 @@ const short = (id: string) => id.slice(id.lastIndexOf('-q') + 1).toUpperCase()
 export function LearningPath({ vid }: { vid: string }) {
   const [lp, setLp] = useState<LP | null>(null)
   const [err, setErr] = useState('')
+  const [chg, setChg] = useState<Record<string, string>>({})
   useEffect(() => { api<LP>(`/versions/${vid}/learning-path`).then(setLp).catch((e) => setErr(e.message)) }, [vid])
+  useEffect(() => {
+    const d = (x: string | null) => (x ? x.replace('_', ' ') : 'not taught')
+    api<Changes>(`/versions/${vid}/changes`).then((c) => setChg(Object.fromEntries((c.map?.depth ?? []).map((x) =>
+      [`${x.concept_id}|${x.week}`, `Since last run: ${d(x.before)} to ${d(x.after)}`])))).catch(() => setChg({}))
+  }, [vid])
   const due = new Map<number, string[]>()
   lp?.assessments.forEach((a) => due.set(a.week_cutoff, [...(due.get(a.week_cutoff) ?? []), a.assessment_id]))
   const q = (id: string) => `#/v/${vid}/review/${id}`
@@ -45,7 +51,8 @@ export function LearningPath({ vid }: { vid: string }) {
                 <Fragment key={t.concept_id}>
                   <div className="tn" title={t.concept_id}>{t.name}</div>
                   {lp.weeks.map((w) => (
-                    <div key={w} className={`c${due.has(w) ? ' due' : ''}`} title={t.depths[w]?.replace('_', ' ')}>
+                    <div key={w} className={`c${due.has(w) ? ' due' : ''}${chg[`${t.concept_id}|${w}`] ? ' chg' : ''}`}
+                      title={chg[`${t.concept_id}|${w}`] ?? t.depths[w]?.replace('_', ' ')}>
                       {t.depths[w] && <span className={`d ${D[t.depths[w]]}`} />}
                     </div>
                   ))}
@@ -62,7 +69,7 @@ export function LearningPath({ vid }: { vid: string }) {
                 </Fragment>
               ))}
             </div>
-            <div className="scale"><span><span className="d m"></span>Mentioned</span><span><span className="d e"></span>Explained</span><span><span className="d w"></span>Worked example</span><span><span className="d p"></span>Practised</span></div>
+            <div className="scale"><span><span className="d m"></span>Mentioned</span><span><span className="d e"></span>Explained</span><span><span className="d w"></span>Worked example</span><span><span className="d p"></span>Practised</span><span><span className="dotchg"></span>Changed since last run</span></div>
           </section>
         )}
         {lp && lp.gaps.length > 0 && (

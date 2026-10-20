@@ -38,3 +38,12 @@ export type Summary = {
   matrix: Record<'ai_exposed' | 'course_specific' | 'neither_taught' | 'broken_or_gap', string[]>
   assessments: { assessment_id: string; week_cutoff: number; current_format: string; segments: string[]; groups: Record<string, number> }[]
 }
+export type FieldChange = { field: 'student_verdict' | 'web_verdict' | 'exposure' | 'gap' | 'recommendation'; before: string | boolean | null; after: string | boolean | null }
+export type Changes = {
+  course_code: string; run: RunStatus | null
+  previous: { version_id: string; created_at: string; run: RunStatus } | null
+  questions?: { question_id: string; edited: boolean; fields: FieldChange[] }[]
+  map?: { depth: { concept_id: string; name: string; week: number; before: string | null; after: string | null }[]
+    added: { concept_id: string; name: string }[]; removed: { concept_id: string; name: string }[] }
+  counts?: { gaps_fixed: number; new_gaps: number; edited: number; results: number; depth: number; topics: number }
+}

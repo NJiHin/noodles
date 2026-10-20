@@ -7,6 +7,7 @@ import { DEPTHS, type Concept, type PassageRef, type RunStatus } from '../types'
 type MapResp = {
   course_code: string; state: 'none' | 'draft' | 'reviewed'; reviewed_at: string | null
   run: RunStatus | null; concepts: Concept[]; passages: Record<string, PassageRef>
+  id_diff: { previous_version: string; disappeared: string[]; new: string[] } | null
 }
 
 const label = (d: string) => d.replace('_', ' ')
@@ -53,6 +54,12 @@ export function CourseMap({ vid }: { vid: string }) {
     } catch (e) { setErr((e as Error).message) }
   }
 
+  // IDs against the previous reviewed version, kept live while editing: a rename shows as one gone and one new
+  const prevIds = m?.id_diff && new Set([...m.id_diff.disappeared, ...m.concepts.map((c) => c.concept_id).filter((i) => !m.id_diff!.new.includes(i))])
+  const editIds = new Set(edit.map((c) => c.concept_id))
+  const gone = prevIds ? [...prevIds].filter((i) => !editIds.has(i)).sort() : []
+  const added = prevIds ? [...editIds].filter((i) => !prevIds.has(i)).sort() : []
+
   const set = (i: number, c: Concept) => setEdit(edit.map((x, j) => (j === i ? c : x)))
   const dirty = m && JSON.stringify(edit) !== JSON.stringify(m.concepts)
 
@@ -91,6 +98,26 @@ export function CourseMap({ vid }: { vid: string }) {
           </section>
         )}
         {err && <p className="err">{err}</p>}
+
+        {m && !runId && prevIds && edit.length > 0 && (gone.length > 0 || added.length > 0) && (
+          <section className="panel">
+            <h2>Topic IDs since the previous version</h2>
+            <p className="hint">A renamed topic shows up as one disappeared and one new ID. If a new ID is the same topic as one that disappeared, give it the old ID so changes are tracked across versions.</p>
+            <div className="id-diff">
+              <div><b>Disappeared</b>{gone.length ? gone.map((i) => <span key={i} className="chip">{i}</span>) : <span className="muted">none</span>}</div>
+              <div><b>New</b>{added.length ? added.map((i) => (
+                <span key={i} className="chip">{i}
+                  {gone.length > 0 && (
+                    <select aria-label={`Same topic as for ${i}`} value="" onChange={(e) => setEdit(edit.map((c) => (c.concept_id === i ? { ...c, concept_id: e.target.value } : c)))}>
+                      <option value="">Same topic as…</option>
+                      {gone.map((g) => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  )}
+                </span>
+              )) : <span className="muted">none</span>}</div>
+            </div>
+          </section>
+        )}
 
         {m && !runId && edit.length > 0 && (
           <section className="panel">
