@@ -1,5 +1,6 @@
 """FastAPI app. Run: uv run uvicorn --factory noodles.api:from_env --reload"""
 import asyncio
+import json
 import os
 import re
 import uuid
@@ -18,6 +19,7 @@ from noodles.assessments import FORMATS, QuestionsError, SplitQuestion, confirme
 from noodles.coursemap import Concept, MapError, build_map, load_map, save_map
 from noodles.llm import OpenAIClient, Run, find_log, read_log
 from noodles.ollama import Ollama, OllamaError
+from noodles.student import test_drive
 from noodles.ingest import IngestError, check_upload_name, guess_week, ingest, read_document, slugify
 
 ID = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -29,6 +31,10 @@ class QuestionsBody(BaseModel):
 
 class MapBody(BaseModel):
     concepts: list[Concept]
+
+
+class TestDriveBody(BaseModel):
+    prerequisite: str | None = None  # course code; its latest reviewed version is used
 
 
 class ConfirmWeeks(BaseModel):
@@ -98,6 +104,10 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             extracted = sum(r["call_type"] == "extractor" for r in calls)
             out |= {"total": n + 1, "stage": f"Extracting topics, week {min(extracted + 1, n)} of {n}" if extracted < n
                     else "Merging topics across weeks"}
+        if cfg["kind"] == "test_drive":
+            answered = sum(r["type"] == "answer" for r in recs)
+            out |= {"done": answered, "total": len(cfg["questions"]),
+                    "stage": f"Student answering, {answered} of {len(cfg['questions'])} questions"}
         return out
 
     def latest_run(code: str, vid: str, kind: str, **match) -> Path | None:
@@ -231,6 +241,64 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             except QuestionsError as e:
                 raise HTTPException(422, str(e))
         return {"ok": True}
+
+    @app.post("/versions/{vid}/test-drives")
+    async def start_test_drive(vid: str, body: TestDriveBody):
+        """The student on every confirmed non-code question. Needs a reviewed map and confirmed questions."""
+        with conn() as c:
+            v = version_row(c, vid)
+            if not v["map_reviewed_at"]:
+                raise HTTPException(409, "confirm the course map first")
+            questions = [{**dict(r), "options": json.loads(r["options"]) if r["options"] else None} for r in c.execute(
+                "SELECT q.question_id, q.text, q.options, a.week_cutoff FROM questions q JOIN assessments a ON "
+                "a.version_id = q.version_id AND a.assessment_id = q.assessment_id WHERE q.version_id = ? "
+                "AND q.type != 'code' ORDER BY a.week_cutoff, q.rowid", (vid,))]
+            if not questions:
+                raise HTTPException(409, "confirm the questions of at least one assessment first")
+            prereq = None
+            if body.prerequisite:
+                p = c.execute("SELECT id FROM versions WHERE course_code = ? AND map_reviewed_at IS NOT NULL "
+                              "ORDER BY created_at DESC LIMIT 1", (body.prerequisite,)).fetchone()
+                if not p or body.prerequisite == v["course_code"]:
+                    raise HTTPException(422, f"{body.prerequisite} has no version with a reviewed map")
+                prereq = p["id"]
+        code = v["course_code"]
+        config = {"kind": "test_drive", "target": vid, "prerequisite": prereq, "prerequisite_course": body.prerequisite,
+                  "questions": [q["question_id"] for q in questions]}
+        return {"run_id": start_job(code, vid, config, lambda run, c: test_drive(
+            run, db_path, code, vid, prereq, body.prerequisite, questions))}
+
+    @app.get("/versions/{vid}/review")
+    def get_review(vid: str):
+        """Every confirmed question with the latest test-drive's student output; cited passages resolved for links."""
+        with conn() as c:
+            code = version_row(c, vid)["course_code"]
+            path = latest_run(code, vid, "test_drive")
+            recs = read_log(path) if path else []
+            answers = {r["question_id"]: r for r in recs if r["type"] == "answer"}
+            cfg = recs[0] if recs else {}
+            cited = {e for a in answers.values() for s in a["steps"] for e in s["evidence"]}
+            passages = {r["passage_id"]: dict(r) for r in c.execute(
+                f"SELECT p.passage_id, v.course_code AS course, p.version_id, p.week, f.filename, p.file_slug AS slug, "
+                f"p.page, p.text FROM passages p JOIN versions v ON v.id = p.version_id JOIN files f ON "
+                f"f.version_id = p.version_id AND f.slug = p.file_slug WHERE p.version_id IN (?, ?) "
+                f"AND p.passage_id IN ({','.join('?' * len(cited))})", (vid, cfg.get("prerequisite"), *cited))}
+            questions = []
+            for q in c.execute("SELECT q.question_id, q.assessment_id, q.text, q.options, q.type, a.week_cutoff, "
+                               "a.current_format FROM questions q JOIN assessments a ON a.version_id = q.version_id AND "
+                               "a.assessment_id = q.assessment_id WHERE q.version_id = ? ORDER BY a.week_cutoff, "
+                               "q.assessment_id, q.rowid", (vid,)):
+                a = answers.get(q["question_id"])
+                def seen(e):  # a cited ID outside the week limit stays visible, unresolved
+                    p = passages.get(e)
+                    ok = p and (p["version_id"] == cfg["prerequisite"] or p["week"] <= q["week_cutoff"])
+                    return p if ok else {"passage_id": e}
+                if a:
+                    a = {**a, "steps": [{**s, "evidence": [seen(e) for e in s["evidence"]]} for s in a["steps"]]}
+                questions.append({**dict(q), "options": json.loads(q["options"]) if q["options"] else None, "answer": a,
+                                  "gap": bool(a) and any(s["source"] == "none" for s in a["steps"])})
+        return {"course_code": code, "run": run_status(path) if path else None,
+                "prerequisite": cfg.get("prerequisite_course"), "questions": questions}
 
     @app.get("/courses")
     def courses():

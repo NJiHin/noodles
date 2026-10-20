@@ -120,7 +120,26 @@ def slice04(page: Page, tmp: Path) -> None:
     STATE["assessment"] = "week-4-quiz"
 
 
-SLICES = [slice01, slice02, slice03, slice04]
+def slice05(page: Page, tmp: Path) -> None:
+    """Start a test-drive; the question shows the student's answer, its steps and their PDF source links."""
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{STATE['version']}/review")
+    page.get_by_role("button", name="Start test-drive").click()
+    expect(page.get_by_role("button", name="Rerun test-drive")).to_be_visible(timeout=30_000)
+    expect(page.get_by_text("Not assessed (code question)")).to_be_visible()  # q2 was set to code in slice 04
+    page.locator(".item", has_text="What does a loop repeat").click()
+    expect(page.get_by_role("heading", name="The student's steps")).to_be_visible()
+    expect(page.get_by_text("Gap: a step has no source")).to_be_visible()  # the fake student adds an uncited step
+    expect(page.get_by_text("No source.")).to_be_visible()
+    link = page.locator(".passage a").first
+    expect(link).to_contain_text("CS1010, week")
+    href = link.get_attribute("href")
+    assert href and "#page=" in href, href
+    r = httpx.get(f"http://127.0.0.1:{WEB}{href.split('#')[0]}")
+    assert r.status_code == 200 and r.content.startswith(b"%PDF"), r.status_code
+    shot(page, "05-review")
+
+
+SLICES = [slice01, slice02, slice03, slice04, slice05]
 STATE: dict = {}
 
 

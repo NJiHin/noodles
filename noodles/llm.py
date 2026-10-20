@@ -36,15 +36,20 @@ class OpenAIClient:
         from openai import AsyncOpenAI
         self.client = AsyncOpenAI(max_retries=0)  # retries are ours, so each failure is visible
 
-    async def complete(self, model: str, messages: list[dict], schema: type[BaseModel]) -> tuple[Any, dict]:
+    async def complete(self, model: str, messages: list[dict], schema: type[BaseModel],
+                       tools: list[dict] | None = None) -> tuple[Any, dict]:
+        """Returns (output, usage): a list of function_call items if the model called a tool, else the parsed JSON."""
         from openai.lib._pydantic import to_strict_json_schema
         r = await self.client.responses.create(
-            model=model, input=messages, temperature=0, reasoning={"effort": "none"},
+            model=model, input=messages, temperature=0, reasoning={"effort": "none"}, **({"tools": tools} if tools else {}),
             text={"format": {"type": "json_schema", "name": schema.__name__, "strict": True,
                              "schema": to_strict_json_schema(schema)}})
         u = r.usage
         usage = {"input_tokens": u.input_tokens, "cached_tokens": u.input_tokens_details.cached_tokens,
                  "output_tokens": u.output_tokens}
+        if calls := [{"type": "function_call", "call_id": o.call_id, "name": o.name, "arguments": o.arguments}
+                     for o in r.output if o.type == "function_call"]:
+            return calls, usage
         try:
             return json.loads(r.output_text), usage
         except ValueError:
@@ -96,31 +101,49 @@ class Run:
     def end(self, error: str | None = None) -> None:
         self.write({"type": "end", "status": "failed" if error else "done", "error": error, "ended_at": now()})
 
-    async def call(self, call_type: str, model: str, prompt_version: str, messages: list[dict],
-                   schema: type[BaseModel], question_id: str | None = None, sees: Any = None) -> BaseModel:
-        """Structured call. `sees` is the content the call can see (defaults to the messages)."""
-        fp = fingerprint(prompt_version, model, messages if sees is None else sees)
+    async def cached(self, call_type: str, model: str, prompt_version: str, sees: Any, question_id: str | None,
+                     produce) -> dict:
+        """Reuse the record with the same fingerprint, else `await produce()` -> (output, usage, extra fields)
+        and log it. Returns the record. For calls made of several requests (the student's tool loop)."""
+        fp = fingerprint(prompt_version, model, sees)
         hit = self.cache.get(fp)
         if hit:
             self.write({**hit, "question_id": question_id, "cached": True, "at": now()})
-            return schema.model_validate(hit["output"])
+            return hit
+        output, usage, extra = await produce()
+        rec = {"type": "call", "fingerprint": fp, "call_type": call_type, "model": model, "question_id": question_id,
+               "usage": usage, "output": output, **extra, "cached": False, "at": now()}
+        self.cache[fp] = rec
+        self.write(rec)
+        return rec
+
+    async def request(self, call_type: str, model: str, messages: list[dict], schema: type[BaseModel],
+                      tools: list[dict] | None = None) -> tuple[Any, dict]:
+        """One API request with retries under the concurrency limit, not cached.
+        Returns (output, usage): a list of tool calls, or the validated schema instance."""
         error = None
         for attempt in range(self.retries):
             if attempt:
                 await asyncio.sleep(self.retry_delay * 2 ** (attempt - 1))
             try:
                 async with self.semaphore:
-                    raw, usage = await self.client.complete(model, messages, schema)
-                out = schema.model_validate(raw)
-                break
+                    raw, usage = await self.client.complete(model, messages, schema, tools)
+                return (raw if isinstance(raw, list) else schema.model_validate(raw)), usage
             except ValidationError as e:
                 error = f"{call_type} output failed its schema: {e.errors()[0]['msg']}"
             except Exception as e:  # API or network failure: retry
                 error = f"{call_type} call failed: {e}"
-        else:
-            raise LLMError(f"{error} (after {self.retries} attempts)")
-        rec = {"type": "call", "fingerprint": fp, "call_type": call_type, "model": model, "question_id": question_id,
-               "usage": usage, "output": out.model_dump(), "cached": False, "at": now()}
-        self.cache[fp] = rec
-        self.write(rec)
-        return out
+        raise LLMError(f"{error} (after {self.retries} attempts)")
+
+    async def call(self, call_type: str, model: str, prompt_version: str, messages: list[dict],
+                   schema: type[BaseModel], question_id: str | None = None, sees: Any = None) -> BaseModel:
+        """Structured call. `sees` is the content the call can see (defaults to the messages)."""
+        async def produce():
+            out, usage = await self.request(call_type, model, messages, schema)
+            return out.model_dump(), usage, {}
+        rec = await self.cached(call_type, model, prompt_version, messages if sees is None else sees, question_id, produce)
+        return schema.model_validate(rec["output"])
+
+
+def add_usage(a: dict, b: dict) -> dict:
+    return {k: a.get(k, 0) + b.get(k, 0) for k in {*a, *b}}

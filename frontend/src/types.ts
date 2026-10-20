@@ -16,3 +16,10 @@ export type Assessment = {
   questions: Question[]; unmatched_marking_material: string[]
 }
 export const FORMAT_LABEL: Record<string, string> = { take_home: 'take-home', online_quiz: 'online quiz', invigilated_exam: 'invigilated exam' }
+export type Cited = { passage_id: string; course?: string; version_id?: string; week?: number; filename?: string; slug?: string; page?: number; text?: string }
+export type Step = { step_id: string; claim: string; source: 'course' | 'prerequisite' | 'assumed_knowledge' | 'none'; evidence: Cited[]; reason: string | null; accepted_id: number | null }
+export type ReviewQuestion = {
+  question_id: string; assessment_id: string; text: string; options: string[] | null; type: QType; week_cutoff: number; current_format: string
+  answer: { final_answer: string | null; steps: Step[] } | null; gap: boolean
+}
+export type ReviewResp = { course_code: string; run: RunStatus | null; prerequisite: string | null; questions: ReviewQuestion[] }

@@ -29,6 +29,7 @@ export function versionNav(vid: string, on: string): Nav[] {
     { label: 'Materials', href: `#/v/${vid}/materials` },
     { label: 'Course map', href: `#/v/${vid}/map` },
     { label: 'Assessments', href: `#/v/${vid}/assessments` },
+    { label: 'Assessment review', href: `#/v/${vid}/review` },
   ].map((n) => ({ ...n, on: n.label === on }))
 }
 

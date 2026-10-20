@@ -44,7 +44,7 @@ def runs_dir(client, tmp_path):
 
 def test_each_extractor_sees_only_its_week(client, version):
     assert run_map(client, version)["status"] == "done"
-    calls = [m for s, _, m in fake(client).calls if s == "WeekRecords"]
+    calls = [m for s, _, m, _ in fake(client).calls if s == "WeekRecords"]
     assert len(calls) == 3
     for msgs in calls:
         user = msgs[-1]["content"]
