@@ -194,7 +194,17 @@ def slice09(page: Page, tmp: Path) -> None:
     shot(page, "09-review-rejected")
 
 
-SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08, slice09]
+def slice10(page: Page, tmp: Path) -> None:
+    """Topics by week with depth cells, the question using a topic, never-assessed topics, the gap list."""
+    page.get_by_role("link", name="Learning path").click()
+    expect(page.get_by_role("heading", name="Topics by week")).to_be_visible()
+    expect(page.locator(".lp .c .d").first).to_be_visible()
+    expect(page.locator(".lp .by .chip", has_text="Q1").first).to_be_visible()
+    expect(page.get_by_role("heading", name="Coverage gaps")).to_be_visible()
+    shot(page, "10-learning-path")
+
+
+SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08, slice09, slice10]
 STATE: dict = {}
 
 

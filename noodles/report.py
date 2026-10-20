@@ -103,3 +103,46 @@ def summary(questions: list[dict]) -> dict:
                    for cell in ("ai_exposed", "course_specific", "neither_taught", "broken_or_gap")},
         "assessments": list(assessments.values()),
     }
+
+
+DEPTH_ORDER = ["mentioned", "explained", "worked_example", "practised"]
+
+
+def learning_path(concepts: list[dict], questions: list[dict]) -> dict:
+    """Topics by week with the questions that use them, and the findings (sys-design Stage 4 section 3).
+    concepts: the reviewed map (load_map). questions: the review's questions (resolved citations).
+    A question uses a topic when a course or prerequisite step cites a passage the topic lists as evidence."""
+    tagged: dict[str, set[str]] = {}
+    for c in concepts:
+        for o in c["occurrences"]:
+            for e in o["evidence"]:
+                tagged.setdefault(e, set()).add(c["concept_id"])
+    uses: dict[str, dict[str, list[dict]]] = {}  # concept -> question -> cited passages
+    for q in questions:
+        for s in (q["answer"] or {}).get("steps", []):
+            if s["source"] in ("course", "prerequisite"):
+                for p in s["evidence"]:
+                    for cid in tagged.get(p["passage_id"], ()) if p.get("week") else ():
+                        uses.setdefault(cid, {}).setdefault(q["question_id"], []).append(p)
+    cutoff = {q["question_id"]: q["week_cutoff"] for q in questions}
+    topics = []
+    for c in concepts:
+        used = uses.get(c["concept_id"], {})
+        mentioned = []
+        for qid, passages in used.items():
+            upto = [o["depth"] for o in c["occurrences"] if o["week"] <= cutoff[qid]]
+            if upto and max(upto, key=DEPTH_ORDER.index) == "mentioned":
+                mentioned.append({"question_id": qid, "week_cutoff": cutoff[qid], **passages[0]})
+        topics.append({"concept_id": c["concept_id"], "name": c["name"],
+                       "depths": {str(o["week"]): o["depth"] for o in c["occurrences"]},
+                       "questions": [q["question_id"] for q in questions if q["question_id"] in used],
+                       "mentioned": mentioned,
+                       "finding": "only_mentioned" if mentioned else None if used else "not_assessed"})
+    weeks = sorted({o["week"] for c in concepts for o in c["occurrences"]} | {q["week_cutoff"] for q in questions})
+    return {"weeks": list(range(1, max(weeks) + 1)) if weeks else [],
+            "assessments": sorted({(q["assessment_id"], q["week_cutoff"]) for q in questions}, key=lambda a: (a[1], a[0])),
+            "topics": topics,
+            "gaps": [{"question_id": q["question_id"], "text": q["text"], "steps": [
+                s["claim"] for s in q["answer"]["steps"] if s["source"] == "none"
+                or (s.get("grounding") or {}).get("verdict") == "unsupported"
+                or (s.get("assumption") or {}).get("state") == "rejected"]} for q in questions if q["gap"]]}

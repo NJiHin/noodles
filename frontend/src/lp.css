@@ -1,0 +1,26 @@
+/* c3-learning-path board (week count is set inline on .map) */
+.lp .map-head { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
+.lp .map-head h2 { font-size: 14px; font-weight: 600; }
+.lp .map-head .hint { color: var(--ink-3); font-size: 13px; margin-top: 2px; max-width: 60ch; }
+.lp .scale { display: flex; gap: 18px; font-size: 12.5px; color: var(--ink-2); margin-top: 14px; }
+.lp .scale > span { display: inline-flex; align-items: center; gap: 6px; }
+.lp .scale .d { width: 12px; height: 12px; border-radius: 3px; }
+.lp .map { display: grid; margin-top: 20px; }
+.lp .wk { text-align: center; color: var(--ink-3); font-size: 12px; padding: 4px 0 8px; line-height: 1.3; }
+.lp .wk small { display: block; font-size: 11.5px; color: var(--ink-2); font-weight: 500; }
+.lp .wk.left { text-align: left; padding-left: 16px; }
+.lp .wk.due, .lp .c.due { background: #F3F4F7; }
+.lp .wk.due { border-radius: 6px 6px 0 0; }
+.lp .tn, .lp .c, .lp .by, .lp .fd { border-top: 1px solid var(--line); height: 38px; display: flex; align-items: center; }
+.lp .tn { font-weight: 500; font-size: 13.5px; }
+.lp .c { justify-content: center; }
+.lp .d { width: 20px; height: 20px; border-radius: 5px; display: inline-block; }
+.lp .d.m { border: 1.5px solid var(--accent); background: var(--surface); }
+.lp .d.e { background: #A9B2EE; }
+.lp .d.w { background: #6878DE; }
+.lp .d.p { background: var(--accent); }
+.lp .by { gap: 6px; padding-left: 16px; }
+.lp .chip { border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; font-size: 12.5px; font-weight: 500; background: var(--surface); color: var(--ink); text-decoration: none; }
+.lp .fd { padding-left: 16px; font-size: 13px; }
+.lp .fd.thin, .lp .fd.thin a { color: var(--warn); font-weight: 500; }
+.lp .fd.n { color: var(--ink-3); }

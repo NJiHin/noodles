@@ -22,7 +22,7 @@ from noodles.llm import OpenAIClient, Run, find_log, now, read_log
 from noodles.ollama import Ollama, OllamaError
 from noodles.student import test_drive
 from noodles.web import Verdict, exposure
-from noodles.report import recommend, summary
+from noodles.report import learning_path, recommend, summary
 from noodles.ingest import IngestError, check_upload_name, guess_week, ingest, read_document, slugify
 
 ID = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -284,6 +284,15 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
     def get_summary(vid: str):
         r = get_review(vid)
         return {"course_code": r["course_code"], "run": r["run"], **summary(r["questions"])}
+
+    @app.get("/versions/{vid}/learning-path")
+    def get_learning_path(vid: str):
+        r = get_review(vid)
+        with conn() as c:
+            concepts = load_map(c, vid)
+        lp = learning_path(concepts, r["questions"])
+        return {"course_code": r["course_code"], "run": r["run"], **lp,
+                "assessments": [{"assessment_id": a, "week_cutoff": w} for a, w in lp["assessments"]]}
 
     @app.get("/versions/{vid}/review")
     def get_review(vid: str):

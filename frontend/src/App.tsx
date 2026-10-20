@@ -5,6 +5,7 @@ import { CourseMap } from './screens/CourseMap'
 import { Assessments } from './screens/Assessments'
 import { Review } from './screens/Review'
 import { Summary } from './screens/Summary'
+import { LearningPath } from './screens/LearningPath'
 
 export default function App() {
   const [a, vid, screen, qid] = useHash()
@@ -13,5 +14,6 @@ export default function App() {
   if (a === 'v' && vid && screen === 'assessments') return <Assessments vid={vid} />
   if (a === 'v' && vid && screen === 'review') return <Review vid={vid} qid={qid} />
   if (a === 'v' && vid && screen === 'summary') return <Summary vid={vid} />
+  if (a === 'v' && vid && screen === 'learning-path') return <LearningPath vid={vid} />
   return <Home />
 }
