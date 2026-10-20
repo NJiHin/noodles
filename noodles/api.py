@@ -294,9 +294,13 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                     ok = p and (p["version_id"] == cfg["prerequisite"] or p["week"] <= q["week_cutoff"])
                     return p if ok else {"passage_id": e}
                 if a:
-                    a = {**a, "steps": [{**s, "evidence": [seen(e) for e in s["evidence"]]} for s in a["steps"]]}
+                    g = {x["step_id"]: x for x in a.get("grounding", [])}
+                    a = {**{k: v for k, v in a.items() if k != "grounding"},
+                         "steps": [{**s, "evidence": [seen(e) for e in s["evidence"]], "grounding": g.get(s["step_id"])}
+                                   for s in a["steps"]]}
                 questions.append({**dict(q), "options": json.loads(q["options"]) if q["options"] else None, "answer": a,
-                                  "gap": bool(a) and any(s["source"] == "none" for s in a["steps"])})
+                                  "gap": bool(a) and any(s["source"] == "none" or (s["grounding"] or {}).get("verdict")
+                                                         == "unsupported" for s in a["steps"])})
         return {"course_code": code, "run": run_status(path) if path else None,
                 "prerequisite": cfg.get("prerequisite_course"), "questions": questions}
 

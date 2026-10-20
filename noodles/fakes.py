@@ -81,7 +81,8 @@ class FakeOpenAI:
 
     def __init__(self, **handlers):
         self.handlers = {"WeekRecords": fake_extract, "MergedMap": fake_orchestrate, "QuestionSplit": fake_split,
-                         "StudentAnswer": fake_student, "Relabels": fake_relabel, **handlers}
+                         "StudentAnswer": fake_student, "Relabels": fake_relabel,
+                         "Grounding": lambda m: {"verdict": "supported", "reason": "The passage states it."}, **handlers}
         self.calls: list[tuple[str, str, list[dict]]] = []
 
     def count(self, schema: str) -> int:

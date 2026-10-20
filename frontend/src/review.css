@@ -30,6 +30,7 @@
 .review .s { display: grid; grid-template-columns: 24px 1fr; gap: 14px; }
 .review .s .mark { width: 24px; height: 24px; border-radius: 50%; background: var(--surface); border: 2px solid var(--ok); display: grid; place-items: center; font-size: 11.5px; font-weight: 600; color: var(--ok); position: relative; }
 .review .s.miss .mark { border-color: var(--bad); color: var(--bad); }
+.review .s.thin .mark { border-color: var(--warn); color: var(--warn); }
 .review .s.ask .mark { border-color: var(--accent); color: var(--accent); }
 .review .s .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
 .review .s .claim { font-size: 14px; }

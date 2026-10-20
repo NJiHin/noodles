@@ -128,7 +128,7 @@ def slice05(page: Page, tmp: Path) -> None:
     expect(page.get_by_text("Not assessed (code question)")).to_be_visible()  # q2 was set to code in slice 04
     page.locator(".item", has_text="What does a loop repeat").click()
     expect(page.get_by_role("heading", name="The student's steps")).to_be_visible()
-    expect(page.get_by_text("Gap: a step has no source")).to_be_visible()  # the fake student adds an uncited step
+    expect(page.get_by_text("Gap: a step is uncited or unsupported")).to_be_visible()  # the fake student adds an uncited step
     expect(page.get_by_text("No source.")).to_be_visible()
     link = page.locator(".passage a").first
     expect(link).to_contain_text("CS1010, week")
@@ -139,7 +139,13 @@ def slice05(page: Page, tmp: Path) -> None:
     shot(page, "05-review")
 
 
-SLICES = [slice01, slice02, slice03, slice04, slice05]
+def slice06(page: Page, tmp: Path) -> None:
+    """Each cited step shows its grounding verdict under the citation."""
+    expect(page.locator(".s .why", has_text="Grounding checker: supported").first).to_be_visible()
+    shot(page, "06-review-grounding")
+
+
+SLICES = [slice01, slice02, slice03, slice04, slice05, slice06]
 STATE: dict = {}
 
 

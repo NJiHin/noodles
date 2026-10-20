@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from noodles import db
 from noodles.coursemap import topic_label
+from noodles.grounding import ground
 from noodles.llm import LUNA, Run, add_usage
 
 STUDENT_V, RECHECK_V = "student-v1", "recheck-v1"
@@ -186,11 +187,13 @@ def tool_output(conn, call: dict, ids: list[str], lookups: int, target: str, n: 
 
 async def test_drive(run: Run, db_path: Path, course: str, target: str, prereq: str | None, prereq_course: str | None,
                      questions: list[dict]) -> None:
-    """Every question in parallel; each student output is written to the run log."""
+    """Every question in parallel: student, re-check, grounding. Each result is written to the run log."""
     conn = student_conn(db_path)
     try:
         async def one(q):
-            run.write({"type": "answer", **await student(run, conn, q, course, target, prereq, prereq_course)})
+            answer = await student(run, conn, q, course, target, prereq, prereq_course)
+            checks = await ground(run, conn, answer, target, prereq)
+            run.write({"type": "answer", **answer, "grounding": checks})
         await asyncio.gather(*(one(q) for q in questions))
     finally:
         conn.close()

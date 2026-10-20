@@ -82,6 +82,7 @@ class Run:
         self.path, self.client, self.cache = path, client, cache
         self.id = path.stem
         self.semaphore, self.retries, self.retry_delay = semaphore, retries, retry_delay
+        self.inflight: dict[str, asyncio.Future] = {}  # identical calls running at once share one request
 
     @classmethod
     def start(cls, runs_dir: Path, code: str, version: str, config: dict, client, *,
@@ -106,16 +107,23 @@ class Run:
         """Reuse the record with the same fingerprint, else `await produce()` -> (output, usage, extra fields)
         and log it. Returns the record. For calls made of several requests (the student's tool loop)."""
         fp = fingerprint(prompt_version, model, sees)
+        if fp in self.inflight:
+            await asyncio.shield(self.inflight[fp])
         hit = self.cache.get(fp)
         if hit:
             self.write({**hit, "question_id": question_id, "cached": True, "at": now()})
             return hit
-        output, usage, extra = await produce()
-        rec = {"type": "call", "fingerprint": fp, "call_type": call_type, "model": model, "question_id": question_id,
-               "usage": usage, "output": output, **extra, "cached": False, "at": now()}
-        self.cache[fp] = rec
-        self.write(rec)
-        return rec
+        self.inflight[fp] = done = asyncio.get_running_loop().create_future()
+        try:
+            output, usage, extra = await produce()
+            rec = {"type": "call", "fingerprint": fp, "call_type": call_type, "model": model, "question_id": question_id,
+                   "usage": usage, "output": output, **extra, "cached": False, "at": now()}
+            self.cache[fp] = rec
+            self.write(rec)
+            return rec
+        finally:
+            del self.inflight[fp]
+            done.set_result(None)  # waiters then find the record in the cache, or call themselves if it failed
 
     async def request(self, call_type: str, model: str, messages: list[dict], schema: type[BaseModel],
                       tools: list[dict] | None = None) -> tuple[Any, dict]:

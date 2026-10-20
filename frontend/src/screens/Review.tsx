@@ -6,6 +6,8 @@ import { FORMAT_LABEL, type ReviewQuestion, type ReviewResp, type Step } from '.
 
 type Course = { code: string; versions: { map_reviewed_at: string | null }[] }
 
+const GROUNDING = { supported: 'Supported.', partial: 'Weak citation.', unsupported: 'Unsupported: counts as a gap.' }
+
 const short = (q: ReviewQuestion) => q.question_id.replace(`${q.assessment_id}-`, '').toUpperCase()
 
 /** c2-review: questions on the left, the selected question's student answer and steps on the right. */
@@ -30,7 +32,7 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
 
   const qs = r?.questions ?? []
   const groups: [string, ReviewQuestion[]][] = [
-    ['Gap: a step has no source', qs.filter((q) => q.gap)],
+    ['Gap: a step is uncited or unsupported', qs.filter((q) => q.gap)],
     ['No gap found', qs.filter((q) => q.answer && !q.gap)],
     ['Not run yet', qs.filter((q) => !q.answer && q.type !== 'code')],
     ['Not assessed (code question)', qs.filter((q) => q.type === 'code')],
@@ -105,7 +107,9 @@ function Detail({ q, prereq }: { q: ReviewQuestion; prereq: string | null }) {
 }
 
 function StepItem({ s, n, cutoff, prereq }: { s: Step; n: number; cutoff: number; prereq: string | null }) {
-  const cls = s.source === 'none' ? ' miss' : s.source === 'assumed_knowledge' ? ' ask' : ''
+  const g = s.grounding
+  const cls = s.source === 'none' || g?.verdict === 'unsupported' ? ' miss' : g?.verdict === 'partial' ? ' thin'
+    : s.source === 'assumed_knowledge' ? ' ask' : ''
   return (
     <li className={`s${cls}`}><span className="mark">{n}</span>
       <div className="card">
@@ -118,6 +122,7 @@ function StepItem({ s, n, cutoff, prereq }: { s: Step; n: number; cutoff: number
             {p.text && <q>{p.text}</q>}
           </div>
         ))}
+        {g && <p className="why"><b>{GROUNDING[g.verdict]}</b> Grounding checker: {g.verdict}. {g.reason}</p>}
         {s.source === 'none' && <p className="why"><b>No source.</b> Not found in weeks 1 to {cutoff}{prereq ? ` or ${prereq}` : ''}, including the keyword re-check.</p>}
         {s.source === 'assumed_knowledge' && <p className="why"><b>Assumed knowledge.</b> {s.accepted_id != null ? `Accepted assumption #${s.accepted_id}.` : s.reason}</p>}
       </div>
