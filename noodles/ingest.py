@@ -191,6 +191,7 @@ def ingest(conn: sqlite3.Connection, files_dir: Path, code: str, staged: list[Pa
                         "VALUES (?, ?, ?, ?, ?, ?, ?)",
                         [(vid, f"{code}-w{week}-{slug}-p{i}", slug, week, i, text, origin)
                          for i, (text, origin) in enumerate(pages[pdf], 1)])
+                conn.execute("INSERT INTO passages_fts(passages_fts) VALUES('rebuild')")
                 shutil.rmtree(dest, ignore_errors=True)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(work, dest)

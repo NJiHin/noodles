@@ -1,12 +1,13 @@
 """Shared fixtures: synthetic PDFs and Office files, and an app on a temp data dir."""
 import io
+import time
 
 import pytest
 from fastapi.testclient import TestClient
 from reportlab.pdfgen import canvas
 
 from noodles.api import create_app
-from noodles.fakes import FakeOllama
+from noodles.fakes import FakeOllama, FakeOpenAI
 
 
 def make_pdf(pages: list[str]) -> bytes:
@@ -34,12 +35,25 @@ def make_docx(paragraphs: list[str]) -> bytes:
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app(data_dir=tmp_path / "data", runs_dir=tmp_path / "runs", ollama=FakeOllama())
+    return create_app(data_dir=tmp_path / "data", runs_dir=tmp_path / "runs", ollama=FakeOllama(),
+                      openai=FakeOpenAI(), llm_opts={"retry_delay": 0})
 
 
 @pytest.fixture
 def client(app):
-    return TestClient(app)
+    with TestClient(app) as c:  # one event loop for the app's lifetime, so background runs keep going
+        yield c
+
+
+def wait_run(client, run_id, timeout=20):
+    """Poll a background run until it stops running; returns its status."""
+    end = time.time() + timeout
+    while time.time() < end:
+        r = client.get(f"/runs/{run_id}").json()
+        if r["status"] != "running":
+            return r
+        time.sleep(0.05)
+    raise AssertionError(f"run {run_id} still running")
 
 
 def upload(client, code, files):

@@ -19,3 +19,28 @@ table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: to
 .pg a { color: var(--accent); text-decoration: none; font-weight: 500; }
 .pg p { white-space: pre-wrap; max-height: 7.5em; overflow: hidden; }
 .muted { color: var(--ink-3); }
+.progress { margin-top: 12px; }
+.progress-head { display: flex; justify-content: space-between; font-size: 13.5px; }
+.progress-bar { height: 6px; background: var(--bg); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+.progress-bar span { display: block; height: 100%; background: var(--accent); transition: width 300ms var(--ease-out); }
+.map-bar { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.map-actions { display: flex; gap: 8px; align-items: center; }
+.topic { padding: 16px 0; border-top: 1px solid var(--line); }
+.topic:first-child { border-top: 0; padding-top: 0; }
+.topic-head { display: flex; gap: 10px; align-items: center; }
+.topic-name { font: 600 15px var(--sans); border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; margin-left: -7px; background: transparent; color: var(--ink); }
+.topic-name:hover, .topic-name:focus { border-color: var(--line); background: var(--surface); }
+.topic-head .id { font-size: 12.5px; margin-right: auto; }
+.topic-head select, .occ select, .aliases input { font: 13px var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: var(--surface); color: var(--ink); }
+.aliases { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-3); margin-top: 6px; }
+.aliases input { width: 360px; }
+.desc { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+.occ { display: grid; grid-template-columns: 70px 150px 1fr; gap: 10px; align-items: center; margin-top: 8px; font-size: 13px; }
+.occ .wk { color: var(--ink-2); font-weight: 500; }
+.ev { display: flex; flex-wrap: wrap; gap: 6px; }
+.ev .chip { display: inline-flex; gap: 4px; align-items: center; border: 1px solid var(--line); border-radius: 6px; padding: 1px 4px 1px 8px; font-size: 12.5px; background: var(--surface); }
+.ev .chip a { color: var(--accent); text-decoration: none; }
+.ev .chip.missing { border-color: var(--bad); color: var(--bad); }
+.ev .chip button { border: 0; background: none; color: var(--ink-3); cursor: pointer; font-size: 14px; padding: 0 4px; }
+.panel h2 { font-size: 14px; font-weight: 600; }
+.panel .hint { color: var(--ink-3); font-size: 13px; margin-top: 2px; }

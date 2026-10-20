@@ -31,6 +31,32 @@ CREATE TABLE IF NOT EXISTS passages (
   UNIQUE (version_id, passage_id),
   FOREIGN KEY (version_id, file_slug) REFERENCES files(version_id, slug)
 );
+CREATE VIRTUAL TABLE IF NOT EXISTS passages_fts USING fts5(
+  heading, text, content='passages'
+);
+CREATE TABLE IF NOT EXISTS concepts (
+  version_id TEXT NOT NULL,
+  concept_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  aliases TEXT NOT NULL DEFAULT '[]',
+  description TEXT,
+  PRIMARY KEY (version_id, concept_id)
+);
+CREATE TABLE IF NOT EXISTS occurrences (
+  version_id TEXT NOT NULL,
+  concept_id TEXT NOT NULL,
+  week INTEGER NOT NULL,
+  depth TEXT NOT NULL CHECK (depth IN ('mentioned', 'explained', 'worked_example', 'practised')),
+  PRIMARY KEY (version_id, concept_id, week)
+);
+CREATE TABLE IF NOT EXISTS evidence (
+  version_id TEXT NOT NULL,
+  concept_id TEXT NOT NULL,
+  passage_id TEXT NOT NULL,
+  PRIMARY KEY (version_id, concept_id, passage_id),
+  FOREIGN KEY (version_id, passage_id) REFERENCES passages(version_id, passage_id)
+);
+CREATE INDEX IF NOT EXISTS evidence_by_passage ON evidence (version_id, passage_id);
 """
 
 

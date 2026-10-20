@@ -71,7 +71,33 @@ def slice02(page: Page, tmp: Path) -> None:
     shot(page, "02-materials-vlm")
 
 
-SLICES = [slice01, slice02]
+def slice03(page: Page, tmp: Path) -> None:
+    """Build the map, edit it (rename, merge, delete, depth, remove evidence), confirm."""
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{STATE['version']}/map")
+    page.get_by_role("button", name="Build course map").click()
+    expect(page.get_by_text("Draft:")).to_be_visible(timeout=30_000)
+    shot(page, "03-map-draft")
+    names = page.locator(".topic-name")
+    n = names.count()
+    assert n >= 3, n
+    first_id = page.locator(".topic .id").first.inner_text()
+    names.first.fill("renamed topic")
+    page.locator(".topic select[aria-label^='Merge']").nth(1).select_option(index=1)
+    expect(names).to_have_count(n - 1)
+    page.get_by_role("button", name="Delete").last.click()
+    expect(names).to_have_count(n - 2)
+    page.locator(".occ select").first.select_option("practised")
+    page.locator(".ev .chip button").first.click()
+    page.get_by_role("button", name="Confirm map").click()
+    expect(page.get_by_text("Confirmed:")).to_be_visible()
+    expect(page.locator(".topic-name").first).to_have_value("renamed topic")
+    m = httpx.get(f"http://127.0.0.1:{API}/versions/{STATE['version']}/map").json()
+    assert m["state"] == "reviewed" and len(m["concepts"]) == n - 2, m["state"]
+    assert any(c["concept_id"] == first_id and c["name"] == "renamed topic" for c in m["concepts"])
+    shot(page, "03-map-confirmed")
+
+
+SLICES = [slice01, slice02, slice03]
 STATE: dict = {}
 
 
