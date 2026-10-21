@@ -125,5 +125,5 @@ export function Home() {
 function FileStatus({ p, active }: { p?: { done: number; total: number }; active: boolean }) {
   if (!p) return <span className="st on"><span className="spin" role="status" aria-label="Reading" /></span>
   if (p.total === 0) return <span className="st" title="No pages need transcribing">–</span>
-  return <span className={active ? 'st on' : 'st'}>{active && <span className="spin" aria-hidden="true" />}{p.done}/{p.total}</span>
+  return <span className={active ? 'st on' : 'st'}><span className="spin" aria-hidden="true" />{p.done}/{p.total}</span>
 }

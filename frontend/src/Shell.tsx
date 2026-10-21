@@ -40,9 +40,12 @@ export function versionNav(vid: string, on: string): Nav[] {
 type Version = { id: string; course_code: string; created_at: string; map_reviewed_at: string | null }
 
 /** Shell for a version's screens: course code and upload date in the side panel. */
+// each screen mounts its own shell; the cache keeps the side panel steady when switching screens
+const seen = new Map<string, Version>()
+
 export function VersionShell({ vid, on, children }: { vid: string; on: string; children: ReactNode }) {
-  const [v, setV] = useState<Version | null>(null)
-  useEffect(() => { api<Version>(`/versions/${vid}`).then(setV).catch(() => setV(null)) }, [vid])
+  const [v, setV] = useState<Version | null>(() => seen.get(vid) ?? null)
+  useEffect(() => { api<Version>(`/versions/${vid}`).then((r) => { seen.set(vid, r); setV(r) }).catch(() => setV(null)) }, [vid])
   return (
     <Shell course={v?.course_code ?? '…'} sub={v ? `Version of ${fmtDate(v.created_at)}` : ''} nav={versionNav(vid, on)}>
       {children}

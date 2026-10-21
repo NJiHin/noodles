@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { api, post } from '../api'
 import { PageLink } from '../PageViewer'
 import { RunProgress } from '../RunProgress'
@@ -28,13 +29,24 @@ function merge(into: Concept, from: Concept): Concept {
   return { ...into, aliases, occurrences: [...weeks.values()].sort((a, b) => a.week - b.week) }
 }
 
-/** Run extraction, watch it, then review and correct the course map before confirming it. */
+/** Applies a list change inside a view transition where the browser has one, so removed rows fade and the rest slide up. */
+function animated(update: () => void) {
+  if (!document.startViewTransition) return update()
+  document.startViewTransition(() => flushSync(update))
+}
+
+/** Run extraction, watch it, then review the course map as a topic × week grid, correct topics in the side panel, and confirm. */
 export function CourseMap({ vid }: { vid: string }) {
   const [m, setM] = useState<MapResp | null>(null)
   const [edit, setEdit] = useState<Concept[]>([])
   const [runId, setRunId] = useState<string | null>(null)
   const [err, setErr] = useState('')
   const [saved, setSaved] = useState(false)
+  const [sel, setSel] = useState<string | null>(null)
+  const [flash, setFlash] = useState<{ week: number; n: number } | null>(null)
+  const [openWeeks, setOpenWeeks] = useState<Set<number> | null>(null) // null: open only when there is a single group
+  const [closing, setClosing] = useState(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   const load = () => api<MapResp>(`/versions/${vid}/map`).then((r) => {
     setM(r); setEdit(r.concepts); setSaved(false)
@@ -61,8 +73,50 @@ export function CourseMap({ vid }: { vid: string }) {
   const gone = prevIds ? [...prevIds].filter((i) => !editIds.has(i)).sort() : []
   const added = prevIds ? [...editIds].filter((i) => !prevIds.has(i)).sort() : []
 
-  const set = (i: number, c: Concept) => setEdit(edit.map((x, j) => (j === i ? c : x)))
-  const dirty = m && JSON.stringify(edit) !== JSON.stringify(m.concepts)
+
+  // grid: topics grouped by the week they first appear; each row has a cell per week the topic is covered
+  const weeks = [...new Set(edit.flatMap((c) => c.occurrences.map((o) => o.week)))].sort((a, b) => a - b)
+  const first = (c: Concept) => Math.min(...c.occurrences.map((o) => o.week))
+  const groups = [...new Set(edit.map(first))].sort((a, b) => a - b).map((w) => ({
+    week: w, topics: edit.filter((c) => first(c) === w).sort((a, b) => a.name.localeCompare(b.name)),
+  }))
+  const order = groups.flatMap((g) => g.topics)
+  const isOpen = (w: number) => openWeeks?.has(w) ?? groups.length === 1
+  const c = edit.find((x) => x.concept_id === sel)
+
+  const before = new Map(m?.concepts.map((x) => [x.concept_id, JSON.stringify(x)]))
+  const changes = edit.filter((x) => before.get(x.concept_id) !== JSON.stringify(x)).length + [...before.keys()].filter((i) => !editIds.has(i)).length
+
+  const setC = (next: Concept) => setEdit(edit.map((x) => (x.concept_id === next.concept_id ? next : x)))
+  const toggle = (w: number) => setOpenWeeks(new Set(isOpen(w) ? [...groups.map((g) => g.week).filter((x) => x !== w && isOpen(x))] : [...groups.map((g) => g.week).filter(isOpen), w]))
+
+  function open(t: Concept, week: number | null) {
+    clearTimeout(closeTimer.current); setClosing(false)
+    if (!isOpen(first(t))) toggle(first(t))
+    setSel(t.concept_id)
+    setFlash(week === null ? null : { week, n: (flash?.n ?? 0) + 1 })
+  }
+  function close() {
+    setClosing(true)
+    closeTimer.current = setTimeout(() => { setSel(null); setClosing(false) }, 150) // let the exit transition play
+  }
+
+  // ↑/↓ move between topics while the panel is open, Esc closes it; typing in a field or an open page viewer wins
+  useEffect(() => {
+    if (!sel) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).closest('input, select, textarea') || document.querySelector('dialog[open]')) return
+      if (e.key === 'Escape') close()
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+      e.preventDefault()
+      const next = order[order.findIndex((x) => x.concept_id === sel) + (e.key === 'ArrowDown' ? 1 : -1)]
+      if (next) open(next, null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+  useEffect(() => { document.querySelector('.mx-row.sel')?.scrollIntoView({ block: 'nearest' }) }, [sel])
+  useEffect(() => { document.querySelector('.ed-wk.flash')?.scrollIntoView({ block: 'nearest' }) }, [flash])
 
   return (
     <VersionShell vid={vid} on="Course map">
@@ -90,10 +144,12 @@ export function CourseMap({ vid }: { vid: string }) {
               </p>
             </div>
             <div className="map-actions">
-              {saved && <span className="v ok">Saved</span>}
+              {saved && <span className="v ok pop">Saved</span>}
               <button className="btn" onClick={start}>{m.state === 'none' ? 'Build course map' : 'Rebuild'}</button>
               {m.state !== 'none' && (
-                <button className="btn primary" disabled={m.state === 'reviewed' && !dirty} onClick={confirm}>Confirm map</button>
+                <button className="btn primary" disabled={m.state === 'reviewed' && !changes} onClick={confirm}>
+                  Confirm map{changes > 0 && ` · ${changes} change${changes === 1 ? '' : 's'}`}
+                </button>
               )}
             </div>
           </section>
@@ -109,7 +165,7 @@ export function CourseMap({ vid }: { vid: string }) {
               <div><b>New</b>{added.length ? added.map((i) => (
                 <span key={i} className="chip">{i}
                   {gone.length > 0 && (
-                    <select aria-label={`Same topic as for ${i}`} value="" onChange={(e) => setEdit(edit.map((c) => (c.concept_id === i ? { ...c, concept_id: e.target.value } : c)))}>
+                    <select aria-label={`Same topic as for ${i}`} value="" onChange={(e) => setEdit(edit.map((x) => (x.concept_id === i ? { ...x, concept_id: e.target.value } : x)))}>
                       <option value="">Same topic as…</option>
                       {gone.map((g) => <option key={g} value={g}>{g}</option>)}
                     </select>
@@ -121,52 +177,94 @@ export function CourseMap({ vid }: { vid: string }) {
         )}
 
         {m && !runId && edit.length > 0 && (
-          <section className="panel">
-            {edit.map((c, i) => (
-              <div className="topic" key={c.concept_id}>
-                <div className="topic-head">
-                  <input className="topic-name" aria-label={`Name of ${c.concept_id}`} value={c.name} onChange={(e) => set(i, { ...c, name: e.target.value })} />
-                  <span className="muted id">{c.concept_id}</span>
+          <div className="cm-split">
+            <section className="panel mx" style={{ '--weeks': weeks.length } as React.CSSProperties}>
+              <div className="mx-top"><b>Topics by week</b>
+                <div className="legend">{DEPTHS.map((d, i) => <span key={d}><i className={`sw d${i}`} />{label(d)}</span>)}</div>
+              </div>
+              <div className="mx-row mx-head"><span />{weeks.map((w) => <span key={w}>W{w}</span>)}</div>
+              {groups.map((g) => (
+                <div key={g.week}>
+                  <button className={`mx-row mx-band ${isOpen(g.week) ? 'open' : ''}`} aria-expanded={isOpen(g.week)} onClick={() => toggle(g.week)}>
+                    <span className="nm"><span className="chev">›</span>Introduced in week {g.week}<small>{g.topics.length} topic{g.topics.length === 1 ? '' : 's'}</small></span>
+                    {weeks.map((w) => {
+                      const n = g.topics.filter((t) => t.occurrences.some((o) => o.week === w)).length
+                      return <span key={w} className="cnt">{n || ''}</span>
+                    })}
+                  </button>
+                  <div className={`mx-body ${isOpen(g.week) ? 'open' : ''}`} inert={!isOpen(g.week)}>
+                    <div>
+                      {g.topics.map((t) => (
+                        <div key={t.concept_id} className={`mx-row ${t.concept_id === sel ? 'sel' : ''}`} onClick={() => open(t, null)}
+                          style={{ viewTransitionName: 'cm-' + t.concept_id.replace(/[^\w-]/g, '-') }}>
+                          <button className="nm" title={t.name}>{t.name}</button>
+                          {weeks.map((w) => {
+                            const o = t.occurrences.find((x) => x.week === w)
+                            return o
+                              ? <button key={w} className={`c d${DEPTHS.indexOf(o.depth)}`} aria-label={`${t.name}, week ${w}: ${label(o.depth)}`}
+                                  title={`Week ${w}: ${label(o.depth)} · ${o.evidence.length} page${o.evidence.length === 1 ? '' : 's'}`}
+                                  onClick={(e) => { e.stopPropagation(); open(t, w) }} />
+                              : <span key={w} />
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </section>
+
+            {c ? (
+              <aside className={`panel cm-side cm-ed ${closing ? 'out' : ''}`} key="ed" aria-label={`Edit ${c.name}`}>
+                <div className="ed-head"><b>{c.name || c.concept_id}</b><small>Week{c.occurrences.length === 1 ? '' : 's'} {c.occurrences.map((o) => o.week).join(', ')}</small>
+                  <button className="btn x" onClick={close}>Close</button></div>
+                <label className="ed-f">Name<input className="topic-name" aria-label={`Name of ${c.concept_id}`} value={c.name} onChange={(e) => setC({ ...c, name: e.target.value })} /></label>
+                <label className="ed-f">Also called<input aria-label={`Aliases of ${c.concept_id}`} value={c.aliases.join(', ')} placeholder="Other names, comma separated"
+                  onChange={(e) => setC({ ...c, aliases: e.target.value.split(',').map((a) => a.trim()).filter(Boolean) })} /></label>
+                {c.description && <p className="desc">{c.description}</p>}
+                <div className="ed-f">Weeks
+                  {c.occurrences.map((o, oi) => (
+                    <div className={`ed-wk ${flash?.week === o.week ? 'flash' : ''}`} key={flash?.week === o.week ? `${o.week}-${flash.n}` : o.week}>
+                      <span className="wk">Week {o.week}</span>
+                      <select aria-label={`Depth of ${c.concept_id} in week ${o.week}`} value={o.depth}
+                        onChange={(e) => setC({ ...c, occurrences: c.occurrences.map((x, k) => (k === oi ? { ...x, depth: e.target.value as Concept['occurrences'][0]['depth'] } : x)) })}>
+                        {DEPTHS.map((d) => <option key={d} value={d}>{label(d)}</option>)}
+                      </select>
+                      <span className="ev">
+                        {o.evidence.map((pid) => {
+                          const p = m.passages[pid]
+                          return (
+                            <span className={`chip ${p ? '' : 'missing'}`} key={pid}>
+                              {p ? <PageLink vid={vid} slug={p.slug} page={p.page}>{p.slug} p{p.page}</PageLink>
+                                : <span title="No such passage in this version">{pid} (not found)</span>}
+                              <button aria-label={`Remove ${pid} from ${c.concept_id}`} onClick={() => setC({
+                                ...c, occurrences: c.occurrences.map((x, k) => (k === oi ? { ...x, evidence: x.evidence.filter((e) => e !== pid) } : x)),
+                              })}>×</button>
+                            </span>
+                          )
+                        })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="ed-foot">
                   <select aria-label={`Merge ${c.concept_id} into`} value="" onChange={(e) => {
-                    const j = edit.findIndex((x) => x.concept_id === e.target.value)
-                    setEdit(edit.map((x, k) => (k === j ? merge(x, c) : x)).filter((_, k) => k !== i))
+                    const into = e.target.value
+                    animated(() => { setEdit(edit.flatMap((x) => (x === c ? [] : x.concept_id === into ? [merge(x, c)] : [x]))); setSel(into) })
                   }}>
                     <option value="">Merge into…</option>
                     {edit.filter((x) => x !== c).map((x) => <option key={x.concept_id} value={x.concept_id}>{x.name}</option>)}
                   </select>
-                  <button className="btn" onClick={() => setEdit(edit.filter((_, k) => k !== i))}>Delete</button>
+                  <button className="btn danger" onClick={() => animated(() => { setEdit(edit.filter((x) => x !== c)); setSel(null) })}>Delete topic</button>
                 </div>
-                <label className="aliases">Also called
-                  <input aria-label={`Aliases of ${c.concept_id}`} value={c.aliases.join(', ')} placeholder="none"
-                    onChange={(e) => set(i, { ...c, aliases: e.target.value.split(',').map((a) => a.trim()).filter(Boolean) })} />
-                </label>
-                {c.description && <p className="desc">{c.description}</p>}
-                {c.occurrences.map((o, oi) => (
-                  <div className="occ" key={o.week}>
-                    <span className="wk">Week {o.week}</span>
-                    <select aria-label={`Depth of ${c.concept_id} in week ${o.week}`} value={o.depth}
-                      onChange={(e) => set(i, { ...c, occurrences: c.occurrences.map((x, k) => (k === oi ? { ...x, depth: e.target.value as Concept['occurrences'][0]['depth'] } : x)) })}>
-                      {DEPTHS.map((d) => <option key={d} value={d}>{label(d)}</option>)}
-                    </select>
-                    <span className="ev">
-                      {o.evidence.map((pid) => {
-                        const p = m.passages[pid]
-                        return (
-                          <span className={`chip ${p ? '' : 'missing'}`} key={pid}>
-                            {p ? <PageLink vid={vid} slug={p.slug} page={p.page}>{p.slug} p{p.page}</PageLink>
-                              : <span title="No such passage in this version">{pid} (not found)</span>}
-                            <button aria-label={`Remove ${pid} from ${c.concept_id}`} onClick={() => set(i, {
-                              ...c, occurrences: c.occurrences.map((x, k) => (k === oi ? { ...x, evidence: x.evidence.filter((e) => e !== pid) } : x)),
-                            })}>×</button>
-                          </span>
-                        )
-                      })}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </section>
+                <div className="ed-id">{c.concept_id}</div>
+              </aside>
+            ) : (
+              <aside className="panel cm-side cm-hint" key="hint">
+                <p className="muted">Click a topic to edit it, or a week's cell to jump to that week. ↑ and ↓ move between topics.</p>
+              </aside>
+            )}
+          </div>
         )}
       </main>
     </VersionShell>

@@ -25,7 +25,9 @@ export function PageViewer({ vid, slug, page: n, onSaved, onClose }: { vid: stri
   const [draft, setDraft] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  useEffect(() => { ref.current?.showModal() }, [])
+  const [saved, setSaved] = useState(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => { ref.current?.showModal(); return () => clearTimeout(closeTimer.current) }, [])
   useEffect(() => {
     api<{ files: File[] }>(`/versions/${vid}/files`).then((v) => setFile(v.files.find((f) => f.slug === slug) ?? null)).catch((e) => setErr(e.message))
   }, [vid, slug])
@@ -35,15 +37,15 @@ export function PageViewer({ vid, slug, page: n, onSaved, onClose }: { vid: stri
     setErr(''); setBusy(true)
     try {
       await api(`/versions/${vid}/passages/${page!.passage_id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: draft }) })
-      const saved = { ...page!, text: draft! }
-      setFile((f) => f && { ...f, pages: f.pages.map((p) => (p.page === n ? saved : p)) })
-      onSaved?.(saved)
-      setDraft(null)
+      const next = { ...page!, text: draft! }
+      setFile((f) => f && { ...f, pages: f.pages.map((p) => (p.page === n ? next : p)) })
+      onSaved?.(next)
+      setDraft(null); setSaved(true)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
 
   return (
-    <dialog className="viewer" ref={ref} onClose={onClose}>
+    <dialog className="viewer" ref={ref} onClose={() => { closeTimer.current = setTimeout(onClose, 150) }}>{/* unmount after the exit transition; a viewer replaced first never fires it */}
       <div className="viewer-head">
         <b>{file?.filename ?? slug}</b><small>Page {n}{file && ` of ${file.pages.length}`}</small>
         {page?.origin === 'vlm' && <span className="v n">vlm</span>}
@@ -55,7 +57,7 @@ export function PageViewer({ vid, slug, page: n, onSaved, onClose }: { vid: stri
           <div className="viewer-text">{err ? <span className="err">{err}</span> : <span className="muted">Loading…</span>}</div>
         ) : draft === null ? (
           <div className="viewer-text">
-            <span className="src">{page.origin === 'vlm' ? 'Transcribed from the page image by the VLM' : 'Text from the PDF'}<button className="btn" onClick={() => setDraft(page.text)}>Edit</button></span>
+            <span className="src">{page.origin === 'vlm' ? 'Transcribed from the page image by the VLM' : 'Text from the PDF'}{saved && <span className="v ok pop">Saved</span>}<button className="btn" onClick={() => { setSaved(false); setDraft(page.text) }}>Edit</button></span>
             {page.text || <span className="muted">No text on this page.</span>}
           </div>
         ) : (
