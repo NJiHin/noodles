@@ -60,7 +60,7 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
     data_dir, runs_dir = Path(data_dir), Path(runs_dir)
     db_path, files_dir, uploads_dir = data_dir / "noodles.db", data_dir / "files", data_dir / "uploads"
     db.init(db_path)
-    vlm = ollama or Ollama()
+    vlm = ollama or Ollama(data_dir / "transcriptions")
     app = FastAPI(title="noodles")
     app.state.openai, app.state.db_path = openai, db_path
     tasks: dict[str, asyncio.Task] = {}

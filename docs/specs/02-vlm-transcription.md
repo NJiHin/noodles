@@ -7,7 +7,7 @@
 ## Flow
 
 1. After parsing (slice 01), flag a page if any of the four Stage 0 rules hold.
-2. Each flagged page is rendered with pypdfium2 and sent to `qwen3-vl:2b` via Ollama. Its markdown replaces the page's passage text, with `origin = vlm`.
+2. Each flagged page is rendered with pypdfium2 and sent to `qwen3-vl:2b-instruct` via Ollama. Its markdown replaces the page's passage text, with `origin = vlm`.
 3. The materials page marks `vlm` passages.
 
 Thresholds for "very little text" and "mostly garbled" are constants, set on the demo courses.

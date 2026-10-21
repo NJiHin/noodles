@@ -89,18 +89,51 @@ def test_ollama_unreachable_fails_and_writes_nothing(app, two_pages, tmp_path):
     from noodles.api import create_app
     from noodles.ollama import Ollama
 
-    bad = TestClient(create_app(tmp_path / "d2", tmp_path / "r2", ollama=Ollama("http://127.0.0.1:9")))
+    bad = TestClient(create_app(tmp_path / "d2", tmp_path / "r2", ollama=Ollama(tmp_path / "t", "http://127.0.0.1:9")))
     up = upload(bad, "CS1010", [("w1.pdf", two_pages)])
     r = bad.post("/courses/CS1010/versions", json={"upload_id": up["upload_id"], "weeks": {"w1.pdf": 1}})
     assert r.status_code == 503 and "Ollama" in r.json()["detail"]
     assert bad.get("/courses").json() == []
 
 
-def test_ollama_error_body_is_a_clear_error(monkeypatch):
+def test_ollama_error_body_is_a_clear_error(monkeypatch, tmp_path):
     import httpx
 
     from noodles.ollama import Ollama, OllamaError
     monkeypatch.setattr(httpx, "post", lambda *a, **k: httpx.Response(200, json={"error": "model failed"},
                                                                        request=httpx.Request("POST", "http://x")))
     with pytest.raises(OllamaError):
-        Ollama().transcribe(b"png")
+        Ollama(tmp_path).transcribe(b"png")
+
+
+def test_transcription_saved_per_page_and_reused(monkeypatch, tmp_path):
+    import httpx
+
+    from noodles.ollama import Ollama
+    calls = []
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: calls.append(1) or httpx.Response(
+        200, json={"response": "# Page"}, request=httpx.Request("POST", "http://x")))
+    vlm = Ollama(tmp_path)
+    assert vlm.transcribe(b"page-1") == "# Page"
+    assert vlm.transcribe(b"page-1") == "# Page" and len(calls) == 1
+    vlm.transcribe(b"page-2")
+    assert len(calls) == 2
+
+
+def test_transcription_cache_expires_after_ttl(monkeypatch, tmp_path):
+    import os
+
+    import httpx
+
+    from noodles import ollama
+    calls = []
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: calls.append(1) or httpx.Response(
+        200, json={"response": "# Page"}, request=httpx.Request("POST", "http://x")))
+    ollama.Ollama(tmp_path).transcribe(b"page")
+    stale = ollama.time.time() - ollama.CACHE_TTL - 60
+    for p in tmp_path.glob("*.md"):
+        os.utime(p, (stale, stale))
+    vlm = ollama.Ollama(tmp_path)
+    assert list(tmp_path.glob("*.md")) == []  # pruned on start
+    vlm.transcribe(b"page")
+    assert len(calls) == 2

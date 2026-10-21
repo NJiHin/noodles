@@ -51,13 +51,13 @@ The professor uploads all their files. The week for each file is guessed from it
    - it has very little text (likely a diagram drawn from shapes)
    - its text is mostly garbled characters (likely equations)
    - it has vector drawings (shape count from pypdfium2), which catches diagrams drawn from shapes that have many labels
-5. **Transcribe flagged pages:** pypdfium2 renders the whole page to an image, and Qwen3-VL 2B (one model, via Ollama, on the machine running the backend) returns the page as markdown: tables as markdown tables, equations as LaTeX, and diagrams described, covering only what's visible. Its output replaces the parser's text for that page and is marked `origin: vlm`. The report says when a step relies on a `vlm` passage.
+5. **Transcribe flagged pages:** pypdfium2 renders the whole page to an image, and Qwen3-VL 2B Instruct (one model, via Ollama, on the machine running the backend) returns the page as markdown: tables as markdown tables, equations as LaTeX, and diagrams described, covering only what's visible. Its output replaces the parser's text for that page and is marked `origin: vlm`. Each page's output is saved as soon as it finishes (`data/transcriptions/<hash>.md`, keyed by model, prompt and page image, kept 30 days), so a retry after a failure transcribes only the pages not yet done. The Instruct model, not Thinking: Qwen reports it ahead on page parsing (OmniDocBench, CC-OCR, OCRBench), and it skips the reasoning tokens that made Thinking take minutes per page. The report says when a step relies on a `vlm` passage.
 6. **Passages:** one page or slide is one passage, with ID `<course>-w<week>-<file slug>-p<page>` (e.g. `CS1010-w5-slides-p12`). The file slug comes from the filename and is unique within a version, so two files in the same week can't collide. Written to the course store with its `origin` (`parser` or `vlm`).
 7. **Source files:** the PDF of each file (converted, or as uploaded) is kept at `data/files/<version_id>/<slug>.pdf` and served by the backend. Every passage citation in the UI links to it at that page (`#page=N`), opened in the browser's own PDF viewer.
 
 - Whole pages, not crops: no crop coordinates, no table border check, and nothing is clipped or missed when an element isn't detected.
 - Thresholds for "very little text" and "mostly garbled" are set during the build, checked on the demo courses.
-- Setup outside `uv sync`: LibreOffice, Java 11+ (for OpenDataLoader) and Ollama with `qwen3-vl:2b` (about 1.9 GB).
+- Setup outside `uv sync`: LibreOffice, Java 11+ (for OpenDataLoader) and Ollama with `qwen3-vl:2b-instruct` (about 1.9 GB).
 - Before relying on it, run one slide deck and one Word document from each demo course through the pipeline and check the flagged pages by eye.
 
 **Assessments into questions:**
