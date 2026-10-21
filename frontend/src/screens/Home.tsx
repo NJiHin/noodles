@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, post } from '../api'
 import { Shell, fmtDate } from '../Shell'
 import { go } from '../useHash'
@@ -6,8 +6,9 @@ import { go } from '../useHash'
 type Course = { code: string; versions: { id: string; created_at: string; map_reviewed_at: string | null }[] }
 type Upload = { upload_id: string; files: { filename: string; week_guess: number | null }[] }
 type Progress = Record<string, { done: number; total: number }>  // per filename
+type Target = { code: string; vid: string; created_at: string; files: Record<string, { week: number; pages: number }> }
 
-/** Upload a course's files, confirm each file's week, then open the materials. */
+/** Upload a course's files, or add files to a course's latest version; confirm each file's week, then open the materials. */
 export function Home() {
   const [courses, setCourses] = useState<Course[]>([])
   const [code, setCode] = useState('')
@@ -16,27 +17,45 @@ export function Home() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [prog, setProg] = useState<Progress | null>(null)
+  const [target, setTarget] = useState<Target | null>(null)  // set while adding files to an existing version
+  const addInput = useRef<HTMLInputElement>(null)
+  const course = target?.code ?? code
 
   useEffect(() => { api<Course[]>('/courses').then(setCourses).catch((e) => setErr(e.message)) }, [])
 
-  async function onUpload(files: FileList | null) {
+  async function onUpload(files: FileList | null, into: Target | null = null) {
     if (!files?.length) return
     const fd = new FormData()
     for (const f of Array.from(files)) fd.append('files', f)
     setErr(''); setBusy(true)
     try {
-      const u = await api<Upload>(`/courses/${code}/uploads`, { method: 'POST', body: fd })
-      setUp(u)
-      setWeeks(Object.fromEntries(u.files.map((f) => [f.filename, f.week_guess?.toString() ?? ''])))
+      const u = await api<Upload>(`/courses/${into?.code ?? code}/uploads`, { method: 'POST', body: fd })
+      setUp(u); setTarget(into)
+      // a file replacing one in the course starts with that file's week
+      setWeeks(Object.fromEntries(u.files.map((f) => [f.filename, (into?.files[f.filename]?.week ?? f.week_guess)?.toString() ?? ''])))
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
+
+  async function startAdd(c: Course) {
+    const v = c.versions[0]
+    setErr('')
+    try {
+      const vf = await api<{ files: { filename: string; week: number; pages: unknown[] }[] }>(`/versions/${v.id}/files`)
+      const t = { code: c.code, vid: v.id, created_at: v.created_at, files: Object.fromEntries(vf.files.map((f) => [f.filename, { week: f.week, pages: f.pages.length }])) }
+      const input = addInput.current!
+      input.onchange = () => { onUpload(input.files, t); input.value = '' }
+      input.click()
+    } catch (e) { setErr((e as Error).message) }
+  }
+
+  function startOver() { setUp(null); setTarget(null) }
 
   async function onConfirm() {
     setErr(''); setBusy(true)
     let polling = true
     const poll = async () => {  // the confirm request runs until every page is read; its progress is a separate endpoint
       while (polling) {
-        const p = await api<Progress>(`/courses/${code}/uploads/${up!.upload_id}/progress`).catch(() => null)
+        const p = await api<Progress>(`/courses/${course}/uploads/${up!.upload_id}/progress`).catch(() => null)
         if (polling && p) setProg(p)
         await new Promise((r) => setTimeout(r, 1000))
       }
@@ -44,7 +63,9 @@ export function Home() {
     poll()
     try {
       const w = Object.fromEntries(Object.entries(weeks).map(([k, v]) => [k, Number(v)]))
-      const { version_id } = await post<{ version_id: string }>(`/courses/${code}/versions`, { upload_id: up!.upload_id, weeks: w })
+      const body = { upload_id: up!.upload_id, weeks: w }
+      const { version_id } = target ? await post<{ version_id: string }>(`/versions/${target.vid}/files`, body)
+        : await post<{ version_id: string }>(`/courses/${code}/versions`, body)
       go(`/v/${version_id}/materials`)
     } catch (e) { setErr((e as Error).message) } finally { polling = false; setBusy(false); setProg(null) }
   }
@@ -65,20 +86,27 @@ export function Home() {
           <section className="panel">
             <h2>Versions</h2>
             <ul className="list-plain">
-              {courses.flatMap((c) => c.versions.map((v) => (
+              {courses.flatMap((c) => c.versions.map((v, i) => (
                 <li key={v.id}>
                   <a className="q" href={`#/v/${v.id}/materials`}>{c.code}</a>
                   <small>Uploaded {fmtDate(v.created_at)} · {v.id}</small>
+                  {i === 0 && <button className="btn add" disabled={busy || !!up} onClick={() => startAdd(c)}>Add files</button>}
                 </li>
               )))}
             </ul>
+            <input ref={addInput} type="file" multiple accept=".pdf,.pptx,.docx,.ppt,.doc" hidden aria-label="Files to add" />
           </section>
         )}
 
         <section className="panel">
-          <h2>New upload</h2>
-          <p className="hint">Legacy .ppt and .doc files must be re-saved as .pptx or .docx first.</p>
-          <div className="row-form">
+          {target ? <>
+            <h2>Add files to {target.code}</h2>
+            <p className="hint">Added to the version of {fmtDate(target.created_at)} · {target.vid}. Confirm each file's week. A file with the same name as one already in the course replaces it.</p>
+          </> : <>
+            <h2>New upload</h2>
+            <p className="hint">Select all of the course's files in one upload (you can pick several at once). Missed one? Use Add files on the course above. Legacy .ppt and .doc files must be re-saved as .pptx or .docx first.</p>
+          </>}
+          {!target && <div className="row-form">
             <label className="field">Course code
               <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="CS1010" disabled={!!up} />
             </label>
@@ -86,7 +114,7 @@ export function Home() {
               <input type="file" multiple accept=".pdf,.pptx,.docx,.ppt,.doc" disabled={!code || busy || !!up}
                 onChange={(e) => onUpload(e.target.files)} />
             </label>
-          </div>
+          </div>}
 
           {up && (
             <>
@@ -95,7 +123,9 @@ export function Home() {
                 <tbody>
                   {up.files.map((f) => (
                     <tr key={f.filename}>
-                      <td>{f.filename}{f.week_guess === null && <span className="muted"> · no week in the name, pick one</span>}</td>
+                      <td>{f.filename}
+                        {target?.files[f.filename] ? <span className="rep"> · replaces {f.filename} ({target.files[f.filename].pages} pages and any corrections on them)</span>
+                          : f.week_guess === null && <span className="muted"> · no week in the name, pick one</span>}</td>
                       <td>{busy && <FileStatus p={prog?.[f.filename]} active={f.filename === active} />}</td>
                       <td>
                         <input type="number" min={1} aria-label={`Week for ${f.filename}`} value={weeks[f.filename]}
@@ -107,9 +137,9 @@ export function Home() {
               </table>
               <div className="row-form">
                 <button className="btn primary" disabled={busy || unconfirmed > 0} onClick={onConfirm}>
-                  {busy ? 'Reading files…' : 'Confirm weeks'}
+                  {busy ? 'Reading files…' : target ? 'Add to course' : 'Confirm weeks'}
                 </button>
-                <button className="btn" disabled={busy} onClick={() => setUp(null)}>Start over</button>
+                <button className="btn" disabled={busy} onClick={startOver}>{target ? 'Cancel' : 'Start over'}</button>
                 {unconfirmed > 0 && <span className="muted">{unconfirmed === 1 ? '1 file still needs' : `${unconfirmed} files still need`} a week</span>}
               </div>
             </>

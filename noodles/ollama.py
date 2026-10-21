@@ -18,6 +18,9 @@ PROMPT = (
 )
 # The output cap stops runaway repetition loops in seconds instead of at the 600 s timeout.
 OPTIONS = {"temperature": 0, "num_predict": 2048, "repeat_penalty": 1.1}
+# Ollama's runner grows by about 400 MB a minute on image requests (measured 3.6 -> 5.6 GB in 5 min on an 8 GB Mac);
+# unloading the model frees it. Reloading costs a few seconds against ~30 s per page.
+UNLOAD_EVERY = 5  # pages sent to the model
 FENCE = re.compile(r"^```(?:markdown)?\s*\n|\n?```\s*$")  # the model wraps pages in a code block despite the prompt
 
 
@@ -28,6 +31,7 @@ class OllamaError(Exception):
 class Ollama:
     def __init__(self, cache_dir: Path, url: str = "http://127.0.0.1:11434"):
         self.cache_dir, self.url = Path(cache_dir), url
+        self.sent = 0  # pages sent to the model, for UNLOAD_EVERY
         for old in self.cache_dir.glob("*.md"):  # drop expired pages so the cache doesn't grow forever
             if self._expired(old):
                 old.unlink(missing_ok=True)
@@ -43,10 +47,12 @@ class Ollama:
         path = self.cache_dir / f"{key}.md"
         if path.exists() and not self._expired(path):
             return path.read_text() or None
+        self.sent += 1
+        unload = {"keep_alive": 0} if self.sent % UNLOAD_EVERY == 0 else {}  # unloads once this reply is sent
         try:
             r = httpx.post(f"{self.url}/api/generate", timeout=600, json={
                 "model": MODEL, "prompt": PROMPT, "images": [base64.b64encode(png).decode()],
-                "stream": False, "options": OPTIONS,
+                "stream": False, "options": OPTIONS, **unload,
             })
             r.raise_for_status()
             body = r.json()

@@ -218,3 +218,18 @@ def test_edited_page_text_replaces_it_for_listing_and_search(client, two_pages):
     hits = recheck_search(student_conn(client.app_db), "recursion smaller", v, 1, None)
     assert [h["passage_id"] for h in hits] == [page["passage_id"]]
     assert client.put(f"/versions/{v}/passages/nope", json={"text": "x"}).status_code == 404
+
+
+def test_model_unloaded_after_every_fifth_transcribed_page(monkeypatch, tmp_path):
+    import httpx
+
+    from noodles.ollama import Ollama
+    sent = []
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: sent.append(k["json"]) or httpx.Response(
+        200, json={"response": "text", "done_reason": "stop"}, request=httpx.Request("POST", "http://x")))
+    vlm = Ollama(tmp_path)
+    vlm.transcribe(b"page 1")
+    vlm.transcribe(b"page 1")  # cached: no model call, doesn't count
+    for i in range(2, 12):
+        vlm.transcribe(f"page {i}".encode())
+    assert [i for i, j in enumerate(sent, 1) if j.get("keep_alive") == 0] == [5, 10]

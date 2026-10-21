@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { PageViewer, type Page } from '../PageViewer'
-import { VersionShell } from '../Shell'
+import { AddedNotice, VersionShell } from '../Shell'
 
 type File = { slug: string; filename: string; week: number; pages: Page[] }
 type Version = { version_id: string; course_code: string; created_at: string; files: File[] }
@@ -33,6 +33,7 @@ export function Materials({ vid }: { vid: string }) {
           <h1>Materials</h1>
           <p>{v ? `${v.files.length} files, ${pages} pages. One passage per page; click a page to see it next to its text.` : err || 'Loading…'}</p>
         </div>
+        <AddedNotice vid={vid} screen="materials" />
         {v && (
           <section className="panel">
             {weeks.map((w) => (

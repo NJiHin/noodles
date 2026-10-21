@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { api } from '../api'
-import { VersionShell, fmtDate } from '../Shell'
+import { AddedNotice, VersionShell, fmtDate } from '../Shell'
 import { FORMAT_LABEL, type Summary as S } from '../types'
 
 /** 'week-4-quiz-q1b' -> ['Q1B', 'week-4-quiz'] */
@@ -47,6 +47,7 @@ export function Summary({ vid }: { vid: string }) {
               <div><b>{s.figures.assumptions}</b>assumptions to confirm</div>
             </div>
           </div>
+          <AddedNotice key={s.run?.run_id} vid={vid} screen="results" />
 
           <div className="row">
             <section className="panel">

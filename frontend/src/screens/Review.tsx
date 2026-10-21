@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { api, post } from '../api'
 import { PageLink } from '../PageViewer'
 import { RunProgress } from '../RunProgress'
-import { VersionShell, fmtDate } from '../Shell'
+import { AddedNotice, VersionShell, fmtDate } from '../Shell'
 import { FORMAT_LABEL, type Changes, type Mark, type ReviewQuestion, type ReviewResp, type Step, type Verdict } from '../types'
 
 type Course = { code: string; versions: { map_reviewed_at: string | null }[] }
@@ -76,13 +76,14 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
             </div>
           ))}
         </section>
-        <main className="detail">{sel ? <Detail q={sel} prereq={r?.prerequisite ?? null} runId={r?.run?.run_id ?? ''} course={r?.course_code ?? ''} reload={load} /> : <p className="muted">Confirm an assessment's questions, then start a test-drive.</p>}</main>
+        <main className="detail">{sel ? <Detail q={sel} prereq={r?.prerequisite ?? null} runId={r?.run?.run_id ?? ''} course={r?.course_code ?? ''} reload={load}
+          notice={<AddedNotice key={r?.run?.run_id} vid={vid} screen="results" />} /> : <p className="muted">Confirm an assessment's questions, then start a test-drive.</p>}</main>
       </div>
     </VersionShell>
   )
 }
 
-function Detail({ q, prereq, runId, course, reload }: { q: ReviewQuestion; prereq: string | null; runId: string; course: string; reload: () => void }) {
+function Detail({ q, prereq, runId, course, reload, notice }: { q: ReviewQuestion; prereq: string | null; runId: string; course: string; reload: () => void; notice: ReactNode }) {
   const a = q.answer
   return (
     <>
@@ -91,6 +92,7 @@ function Detail({ q, prereq, runId, course, reload }: { q: ReviewQuestion; prere
         <h2 className="qtitle">{q.text}</h2>
         {q.options && <ol className="opts">{q.options.map((o, i) => <li key={i}>({String.fromCharCode(65 + i)}) {o}</li>)}</ol>}
       </div>
+      {notice}
       {q.type === 'code' && <p className="muted">Not assessed (code question).</p>}
       {q.type !== 'code' && !a && <p className="muted">Not run yet. Start a test-drive to see the student's answer.</p>}
       {a && (

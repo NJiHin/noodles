@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom'
 import { api, post } from '../api'
 import { PageLink } from '../PageViewer'
 import { RunProgress } from '../RunProgress'
-import { VersionShell, fmtDate } from '../Shell'
+import { AddedNotice, VersionShell, fmtDate } from '../Shell'
 import { DEPTHS, type Concept, type PassageRef, type RunStatus } from '../types'
 
 type MapResp = {
@@ -126,6 +126,7 @@ export function CourseMap({ vid }: { vid: string }) {
           <h1>Course map</h1>
           <p>Topics found in each week's materials, merged across weeks. Correct anything wrong, then confirm: the test-drive uses only the confirmed map.</p>
         </div>
+        {!runId && <AddedNotice key={m?.run?.run_id} vid={vid} screen="map" rebuild={start} />}
 
         {runId && (
           <section className="panel">

@@ -10,13 +10,17 @@ CREATE TABLE IF NOT EXISTS versions (
   id TEXT PRIMARY KEY,
   course_code TEXT NOT NULL REFERENCES courses(code),
   created_at TEXT NOT NULL,
-  map_reviewed_at TEXT
+  map_reviewed_at TEXT,
+  fingerprint TEXT,
+  materials_changed_at TEXT
 );
 CREATE TABLE IF NOT EXISTS files (
   version_id TEXT NOT NULL REFERENCES versions(id),
   slug TEXT NOT NULL,
   filename TEXT NOT NULL,
   week INTEGER NOT NULL,
+  sha256 TEXT,
+  added_at TEXT,
   PRIMARY KEY (version_id, slug)
 );
 CREATE TABLE IF NOT EXISTS passages (
@@ -105,7 +109,18 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
+# columns added after a table was first created: databases made before them get them on start
+ADDED = {"versions": ["fingerprint TEXT", "materials_changed_at TEXT"], "files": ["sha256 TEXT", "added_at TEXT"]}
+
+
 def init(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with connect(path) as conn:
         conn.executescript(SCHEMA)
+        for table, cols in ADDED.items():
+            have = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            for col in cols:
+                if col.split()[0] not in have:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col}")
+        conn.execute("UPDATE versions SET fingerprint = id WHERE fingerprint IS NULL")  # the ID is the fingerprint at creation
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS versions_by_fingerprint ON versions (fingerprint)")

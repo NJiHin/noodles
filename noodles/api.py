@@ -25,7 +25,7 @@ from noodles.student import test_drive
 from noodles.web import Verdict, exposure
 from noodles.cost import run_cost
 from noodles.report import changes, learning_path, recommend, summary
-from noodles.ingest import IngestError, check_upload_name, guess_week, ingest, page_png, read_document, slugify
+from noodles.ingest import FingerprintTaken, IngestError, add_files, check_upload_name, guess_week, ingest, page_png, read_document, slugify
 
 ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -156,7 +156,8 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
         with conn() as c:
             v = version_row(c, vid)
             weeks = [r[0] for r in c.execute("SELECT DISTINCT week FROM passages WHERE version_id = ? ORDER BY week", (vid,))]
-            prev = previous_version(c, v, reviewed=True)
+            # files added in place: this version's own confirmed topics are the reference, so IDs stay the same
+            prev = vid if v["map_reviewed_at"] else previous_version(c, v, reviewed=True)
             previous = [{"concept_id": r["concept_id"], "name": r["name"], "aliases": json.loads(r["aliases"])} for r in
                         c.execute("SELECT * FROM concepts WHERE version_id = ? ORDER BY concept_id", (prev,))] if prev else []
         code = v["course_code"]
@@ -471,9 +472,8 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             (d / str(i) / n).write_bytes(f.file.read())
         return {"upload_id": upload_id, "files": [{"filename": n, "week_guess": guess_week(n)} for n in names]}
 
-    @app.post("/courses/{code}/versions")
-    def confirm(code: str, body: ConfirmWeeks):
-        safe_id(code)
+    def staged_files(body: ConfirmWeeks) -> list[Path]:
+        """The upload's files, once every one has a confirmed week."""
         d = uploads_dir / safe_id(body.upload_id)
         if not d.is_dir():
             raise HTTPException(404, "upload not found")
@@ -483,14 +483,34 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             raise HTTPException(422, "weeks given for files that weren't uploaded")
         if missing or any(w < 1 for w in body.weeks.values()):
             raise HTTPException(422, f"confirm a week (1 or more) for every file: {', '.join(missing)}")
+        return staged
+
+    def reading(body: ConfirmWeeks, work):
+        """Run an ingest step with the upload's progress reporting, mapping its errors to HTTP ones."""
+        try:
+            return work(lambda files: ingest_progress.__setitem__(body.upload_id, files))
+        except FingerprintTaken as e:
+            raise HTTPException(409, str(e))
+        except IngestError as e:
+            raise HTTPException(422, str(e))
+        except OllamaError as e:
+            raise HTTPException(503, str(e))
+
+    @app.post("/courses/{code}/versions")
+    def confirm(code: str, body: ConfirmWeeks):
+        safe_id(code)
+        staged = staged_files(body)
         with conn() as c:
-            try:
-                return {"version_id": ingest(c, files_dir, code, staged, body.weeks, vlm,
-                                             lambda files: ingest_progress.__setitem__(body.upload_id, files))}
-            except IngestError as e:
-                raise HTTPException(422, str(e))
-            except OllamaError as e:
-                raise HTTPException(503, str(e))
+            return {"version_id": reading(body, lambda progress: ingest(c, files_dir, code, staged, body.weeks, vlm, progress))}
+
+    @app.post("/versions/{vid}/files")
+    def add_to_version(vid: str, body: ConfirmWeeks):
+        """Add files to the version in place (sys-design Stage 0, "Adding files to a course")."""
+        staged = staged_files(body)
+        with conn() as c:
+            version_row(c, vid)
+            reading(body, lambda progress: add_files(c, files_dir, vid, staged, body.weeks, vlm, progress))
+        return {"version_id": vid}
 
     @app.get("/courses/{code}/uploads/{upload_id}/progress")
     def upload_progress(code: str, upload_id: str):
@@ -499,8 +519,22 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
 
     @app.get("/versions/{vid}")
     def get_version(vid: str):
+        """The version, the files added to it after creation, and what those additions made outdated."""
         with conn() as c:
-            return dict(version_row(c, vid))
+            v = dict(version_row(c, vid))
+            added = [dict(r) for r in c.execute("SELECT filename, week FROM files WHERE version_id = ? AND added_at IS NOT NULL "
+                                                "ORDER BY added_at, filename", (vid,))]
+            has_map = v["map_reviewed_at"] or c.execute("SELECT 1 FROM concepts WHERE version_id = ?", (vid,)).fetchone()
+        changed = v["materials_changed_at"]
+
+        def before_change(kind):  # the latest run of this kind started before the materials changed
+            path = latest_run(v["course_code"], vid, kind)
+            return bool(changed and path and read_log(path)[0]["started_at"] < changed)
+        map_run = latest_run(v["course_code"], vid, "map")
+        return {**v, "added_files": added, "outdated": {
+            "map": bool(changed and has_map and not (map_run and read_log(map_run)[0]["started_at"] > changed)),
+            "map_confirmed": bool(v["map_reviewed_at"] and (not changed or v["map_reviewed_at"] > changed)),
+            "results": before_change("test_drive")}}
 
     @app.get("/versions/{vid}/files")
     def version_files(vid: str):

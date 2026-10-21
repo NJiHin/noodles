@@ -311,7 +311,34 @@ def slice12(page: Page, tmp: Path) -> None:
     shot(page, "12-method")
 
 
-SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08, slice09, slice10, slice11, slice12]
+def slice13(page: Page, tmp: Path) -> None:
+    """Add files to the course's latest version: one new, one replacing; notices on materials, map and results."""
+    a = f"http://127.0.0.1:{API}"
+    vid = next(c for c in httpx.get(f"{a}/courses").json() if c["code"] == "CS1010")["versions"][0]["id"]
+    replaced = httpx.get(f"{a}/versions/{vid}/files").json()["files"][0]["filename"]
+    (tmp / "add").mkdir()
+    (tmp / "add" / "Week03_Recursion.pdf").write_bytes(make_pdf(["Recursion solves a problem by calling itself on smaller input."]))
+    (tmp / "add" / replaced).write_bytes(make_pdf(["Revised notes: variables hold values a program can change."]))
+    page.goto(f"http://127.0.0.1:{WEB}/#/")
+    with page.expect_file_chooser() as fc:
+        page.locator("li", has_text=vid).get_by_role("button", name="Add files").click()
+    fc.value.set_files([tmp / "add" / "Week03_Recursion.pdf", tmp / "add" / replaced])
+    expect(page.get_by_role("heading", name="Add files to CS1010")).to_be_visible()
+    expect(page.locator(".t .rep")).to_contain_text(f"replaces {replaced}")
+    shot(page, "13-home-add-files")
+    page.get_by_role("button", name="Add to course").click()
+    expect(page.get_by_role("heading", name="Materials")).to_be_visible(timeout=30_000)
+    assert vid in page.url
+    expect(page.locator(".notice.info")).to_contain_text("Week03_Recursion.pdf")
+    page.get_by_role("link", name="Course map").click()
+    expect(page.locator(".notice.warn")).to_contain_text("after this map was built")
+    shot(page, "13-map-outdated")
+    page.get_by_role("link", name="Summary").click()
+    expect(page.locator(".notice.warn")).to_contain_text("Rebuild and confirm the course map first")
+    shot(page, "13-summary-outdated")
+
+
+SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08, slice09, slice10, slice11, slice12, slice13]
 STATE: dict = {}
 
 

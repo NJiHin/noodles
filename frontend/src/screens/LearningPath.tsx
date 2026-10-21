@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { api } from '../api'
 import { PageLink } from '../PageViewer'
-import { VersionShell } from '../Shell'
+import { AddedNotice, VersionShell } from '../Shell'
 import type { Changes, Cited } from '../types'
 
 type Topic = {
@@ -38,6 +38,7 @@ export function LearningPath({ vid }: { vid: string }) {
           <h1>Learning path</h1>
           <p>Each topic in the course map, the weeks it's taught in, and the questions that use it. Questions are linked to topics through the passages the student cited, so a topic used only in an assumed or unsourced step doesn't count as assessed, and a cited passage tagged with several topics counts for all of them.</p>
         </div>
+        <AddedNotice vid={vid} screen="results" />
         {err && <p className="err">{err}</p>}
         {lp && (
           <section className="panel">

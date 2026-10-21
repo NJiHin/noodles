@@ -42,7 +42,17 @@ This file is the single source of truth for the design.
 
 The professor uploads all their files. The week for each file is guessed from its filename, and the professor confirms it. Assessments are uploaded with their answers or marking material, and the professor states which weeks each one covers (its `week_cutoff`) and its `current_format`.
 
-- **Open (UX):** an upload makes a version from only the files in that upload. Uploading one more file under an existing course code makes a new version holding just that file; it does not add to the course. Example: upload `Lecture1.pdf` for IS4401, then upload `Lecture2.pdf` for IS4401 because it was missed, and the second version contains only Lecture2. Nothing on the upload screen says all of a course's files must go in one upload. Needed: (1) the upload screen tells the professor to upload all the course's files together, and (2) a way to add files to an existing course, in case one was missed.
+- **Upload together:** the upload screen tells the professor to select all the course's files in one upload.
+- **Adding files to a course:** a missed or corrected file is added from the course's row on the home screen, into the course's latest version (the version changes in place; no new version):
+  - The professor confirms the week of each added file, as on upload. Only the added files are converted, parsed and transcribed.
+  - A file with the same name as one already in the version replaces it: its pages, and any text corrections on them, are replaced.
+  - Everything else stays: other files' pages and corrections, the confirmed map, assessments and their confirmed questions, and earlier test-drive results.
+  - The version's `fingerprint` is recomputed from its files and weeks, so a later upload of the same set finds this version; its ID does not change.
+  - `materials_changed_at` is set. A notice shows on every screen it affects:
+    - Materials: new files were added on that date.
+    - Course map: new materials were added since the map was built; rebuild it. Only the weeks of the added files are re-extracted, and topic IDs stay the same.
+    - Summary, assessment review and learning path: these results are from before new materials were added. If the map hasn't been rebuilt and confirmed since, the notice says to do that first; otherwise, to rerun the test-drive.
+  - A map is outdated when it was built before `materials_changed_at`; results are outdated when their test-drive ran before it. Assessments are not affected: question extraction reads only the assessment files.
 
 **Parsing pipeline (one route for every file type):**
 1. **Upload:** `.pptx`, `.docx` and `.pdf`. Legacy `.ppt`/`.doc` are rejected with a request to re-save. Speaker notes and spreadsheets are left out.
@@ -53,10 +63,10 @@ The professor uploads all their files. The week for each file is guessed from it
    - it has very little text (likely a diagram drawn from shapes)
    - its text is mostly garbled characters (likely equations)
    - it has vector drawings (shape count from pypdfium2), which catches diagrams drawn from shapes that have many labels
-5. **Transcribe flagged pages:** pypdfium2 renders the whole page to an image, and Qwen3-VL 2B Instruct (one model, via Ollama, on the machine running the backend) returns the page as markdown: tables as markdown tables, equations as LaTeX, and diagrams described, covering only what's visible. Its output replaces the parser's text for that page and is marked `origin: vlm`. Output is capped at 2,048 tokens; a page that hits the cap (a repetition loop) keeps the parser's text instead. Each page's output is saved as soon as it finishes (`data/transcriptions/<hash>.md`, keyed by model, prompt and page image, kept 30 days), so a retry after a failure transcribes only the pages not yet done. The Instruct model, not Thinking: Qwen reports it ahead on page parsing (OmniDocBench, CC-OCR, OCRBench), and it skips the reasoning tokens that made Thinking take minutes per page. The report says when a step relies on a `vlm` passage. While the files are read, the upload screen shows, for each file, how many of its flagged pages are transcribed.
+5. **Transcribe flagged pages:** pypdfium2 renders the whole page to an image, and Qwen3-VL 2B Instruct (one model, via Ollama, on the machine running the backend) returns the page as markdown: tables as markdown tables, equations as LaTeX, and diagrams described, covering only what's visible. Its output replaces the parser's text for that page and is marked `origin: vlm`. Output is capped at 2,048 tokens; a page that hits the cap (a repetition loop) keeps the parser's text instead. Each page's output is saved as soon as it finishes (`data/transcriptions/<hash>.md`, keyed by model, prompt and page image, kept 30 days), so a retry after a failure transcribes only the pages not yet done. The Instruct model, not Thinking: Qwen reports it ahead on page parsing (OmniDocBench, CC-OCR, OCRBench), and it skips the reasoning tokens that made Thinking take minutes per page. The report says when a step relies on a `vlm` passage. While the files are read, the upload screen shows, for each file, how many of its flagged pages are transcribed. The model is unloaded after every 5 pages it transcribes: Ollama's runner grows by about 400 MB a minute on image requests (3.6 to 5.6 GB in 5 minutes on an 8 GB Mac), and unloading frees it for a few seconds' reload.
 6. **Passages:** one page or slide is one passage, with ID `<course>-w<week>-<file slug>-p<page>` (e.g. `CS1010-w5-slides-p12`). The file slug comes from the filename and is unique within a version, so two files in the same week can't collide. Written to the course store with its `origin` (`parser` or `vlm`).
 7. **Source files:** the PDF of each file (converted, or as uploaded) is kept at `data/files/<version_id>/<slug>.pdf` and served by the backend. Every passage citation in the UI links to it at that page (`#page=N`), opened in the browser's own PDF viewer.
-8. **Check and correct:** on the materials screen, and from any passage citation (course map evidence, review, learning path), clicking a page opens its text next to the page image (rendered as the VLM saw it). The professor can edit and save the text; it replaces the passage in place (origin unchanged) and later runs read the new text. A new version transcribes its pages afresh, so edits don't carry over.
+8. **Check and correct:** on the materials screen, and from any passage citation (course map evidence, review, learning path), clicking a page opens its text next to the page image (rendered as the VLM saw it). The professor can edit and save the text; it replaces the passage in place (origin unchanged) and later runs read the new text. A new version transcribes its pages afresh, so edits don't carry over. Adding files to the version keeps them, except on a file that is replaced.
 
 - Whole pages, not crops: no crop coordinates, no table border check, and nothing is clipped or missed when an element isn't detected.
 - Thresholds for "very little text" and "mostly garbled" are set during the build, checked on the demo courses.
@@ -290,6 +300,7 @@ Combined in code from the stage 2 and 3 outputs and the course map:
    - **Course map** (matched by `concept_id`): topics added or removed, and depth changes per week.
    - **Navigation:** the section opens with counts per kind of change, and each entry links to that question or topic. Changed items also carry a marker in the assessment review and learning path, showing before → after.
    - On a course's first version, the section says there is no previous run.
+   - **Open (tabled):** files added to a version in place are not compared (the before and after runs are in the same version), and the page may be redundant.
 6. **Method and limitations.**
 
 ## Orchestration and storage
@@ -316,7 +327,8 @@ Combined in code from the stage 2 and 3 outputs and the course map:
 
 **Course-level versioning:**
 - The course code is the ID that groups all versions of a course (e.g. `CS1010`).
-- Every re-upload or week correction creates a new version (identified by a fingerprint of its materials and their confirmed weeks) under the same course code. A handover is a new version uploaded by a different professor.
+- Every upload or week correction creates a new version (found again by a fingerprint of its materials and their confirmed weeks) under the same course code. A handover is a new version uploaded by a different professor.
+- Adding files to a course changes its latest version in place (Stage 0, "Adding files to a course").
 - "Changes since the last run" compares the latest version with the previous one under the same course code.
 - The cache is shared across all versions of a course, so unchanged weeks reuse earlier results.
 
@@ -346,9 +358,11 @@ CREATE TABLE courses (
 );
 
 CREATE TABLE versions (
-  id TEXT PRIMARY KEY,                        -- fingerprint of the materials and their confirmed weeks
+  id TEXT PRIMARY KEY,                        -- the fingerprint at creation (a random ID if a changed version holds it); never changes
   course_code TEXT NOT NULL REFERENCES courses(code),
   created_at TEXT NOT NULL,
+  fingerprint TEXT NOT NULL UNIQUE,           -- of the current materials and their confirmed weeks; updated when files are added
+  materials_changed_at TEXT,                  -- NULL until files are added after creation
   map_reviewed_at TEXT                        -- NULL until the professor confirms the map
 );
 
