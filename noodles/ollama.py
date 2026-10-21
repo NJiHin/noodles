@@ -1,6 +1,7 @@
 """Page transcription with Qwen3-VL via a local Ollama server (sys-design Stage 0, step 5)."""
 import base64
 import hashlib
+import re
 import time
 from pathlib import Path
 
@@ -10,8 +11,14 @@ MODEL = "qwen3-vl:2b-instruct"  # not the thinking model: better at page parsing
 CACHE_TTL = 30 * 86400  # seconds
 PROMPT = (
     "Transcribe this page as markdown. Tables as markdown tables, equations as LaTeX, and describe each "
-    "diagram in words. Cover only what is visible on the page; add nothing else."
+    "diagram in words. Cover only what is visible on the page; add nothing else.\n"
+    "Rules: output raw markdown, not wrapped in a code block. Never invent URLs or image links. "
+    "Never output placeholders such as <!-- Image -->; describe what each image or diagram shows instead. "
+    "For charts, give only numbers printed on the chart; do not estimate unlabelled values."
 )
+# The output cap stops runaway repetition loops in seconds instead of at the 600 s timeout.
+OPTIONS = {"temperature": 0, "num_predict": 2048, "repeat_penalty": 1.1}
+FENCE = re.compile(r"^```(?:markdown)?\s*\n|\n?```\s*$")  # the model wraps pages in a code block despite the prompt
 
 
 class OllamaError(Exception):
@@ -29,19 +36,21 @@ class Ollama:
     def _expired(path: Path) -> bool:
         return time.time() - path.stat().st_mtime > CACHE_TTL
 
-    def transcribe(self, png: bytes) -> str:
-        """Saved per page as it finishes, so a retry after a failure skips pages already done."""
-        key = hashlib.sha256(f"{MODEL}\n{PROMPT}\n".encode() + png).hexdigest()
+    def transcribe(self, png: bytes) -> str | None:
+        """Page markdown, or None if the model ran away (hit the output cap): keep the parser's text then.
+        Saved per page as it finishes, so a retry after a failure skips pages already done."""
+        key = hashlib.sha256(f"{MODEL}\n{PROMPT}\n{OPTIONS}\n".encode() + png).hexdigest()
         path = self.cache_dir / f"{key}.md"
         if path.exists() and not self._expired(path):
-            return path.read_text()
+            return path.read_text() or None
         try:
             r = httpx.post(f"{self.url}/api/generate", timeout=600, json={
                 "model": MODEL, "prompt": PROMPT, "images": [base64.b64encode(png).decode()],
-                "stream": False, "options": {"temperature": 0},
+                "stream": False, "options": OPTIONS,
             })
             r.raise_for_status()
-            text = r.json()["response"].strip()
+            body = r.json()
+            text = "" if body.get("done_reason") == "length" else FENCE.sub("", body["response"].strip()).strip()
         except (httpx.HTTPError, ValueError, KeyError) as e:
             raise OllamaError(f"Ollama is unreachable at {self.url} or failed ({e}). "
                               f"Start Ollama and run `ollama pull {MODEL}`, then confirm again.") from e
@@ -49,4 +58,4 @@ class Ollama:
         tmp = path.with_suffix(".tmp")  # write then rename, so a crash never leaves a half-written page
         tmp.write_text(text)
         tmp.replace(path)
-        return text
+        return text or None

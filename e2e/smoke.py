@@ -50,15 +50,28 @@ def slice01(page: Page, tmp: Path) -> dict:
     expect(page.get_by_text("no week in the name")).to_be_visible()
     shot(page, "01-week-confirm")
     page.get_by_label("Week for reading.pdf").fill("2")
+    # Hold the confirm request and fake one progress reading, so the progress state can be seen.
+    held = []
+    page.route("**/courses/CS1010/versions", lambda route: held.append(route))
+    page.route("**/progress", lambda route: route.fulfill(json={
+        "Week01_Intro.pdf": {"done": 1, "total": 2}, "L2-loops.docx": {"done": 0, "total": 0}, "reading.pdf": {"done": 0, "total": 1}}))
     page.get_by_role("button", name="Confirm weeks").click()
+    expect(page.get_by_role("row", name="Week01_Intro.pdf")).to_contain_text("1/2")
+    expect(page.get_by_role("row", name="reading.pdf")).to_contain_text("0/1")
+    shot(page, "01-reading-progress")
+    held[0].continue_()
+    page.unroute("**/progress")
+    page.unroute("**/courses/CS1010/versions")
     expect(page.get_by_role("heading", name="Materials")).to_be_visible(timeout=120_000)
     expect(page.get_by_text("3 files, 4 pages")).to_be_visible()
     page.get_by_text("L2-loops.docx").click()
-    link = page.get_by_role("link", name="Page 1").first
+    page.get_by_role("button", name="Page 1").click()
+    link = page.get_by_role("link", name="Open PDF")
     href = link.get_attribute("href")
     assert href and href.endswith("#page=1"), href
     r = httpx.get(f"http://127.0.0.1:{WEB}{href.split('#')[0]}")
     assert r.status_code == 200 and r.content.startswith(b"%PDF"), r.status_code
+    page.get_by_role("button", name="Close").click()
     shot(page, "01-materials")
     return {"version": page.url.split("/v/")[1].split("/")[0]}
 
@@ -69,6 +82,22 @@ def slice02(page: Page, tmp: Path) -> None:
     page.get_by_text("Week01_Intro.pdf").click()
     expect(page.get_by_text("vlm", exact=True).first).to_be_visible()
     shot(page, "02-materials-vlm")
+    # The page viewer: transcription next to the page image, editable.
+    page.get_by_role("button", name="Page 2").click()
+    img = page.get_by_role("img", name="Page 2 of Week01_Intro.pdf")
+    expect(img).to_be_visible()
+    page.wait_for_function("() => { const i = document.querySelector('.viewer-img img'); return i.complete && i.naturalWidth > 0 }")
+    shot(page, "02-viewer")
+    page.get_by_role("button", name="Edit").click()
+    # keeps the first words, so the fake map extractor names the same topics for later slices
+    page.get_by_label("Transcription").fill("[vlm] Transcribed page, corrected by hand.")
+    shot(page, "02-viewer-edit")
+    page.get_by_role("button", name="Save").click()
+    expect(page.locator(".viewer-text")).to_contain_text("[vlm] Transcribed page, corrected by hand.")
+    page.get_by_role("button", name="Close").click()
+    expect(page.get_by_role("button", name="Page 2")).to_contain_text("[vlm] Transcribed page, corrected by hand.")
+    files = httpx.get(f"http://127.0.0.1:{API}/versions/{STATE['version']}/files").json()["files"]
+    assert any(p["text"] == "[vlm] Transcribed page, corrected by hand." for f in files for p in f["pages"])
 
 
 def slice03(page: Page, tmp: Path) -> None:
@@ -86,6 +115,10 @@ def slice03(page: Page, tmp: Path) -> None:
     expect(names).to_have_count(n - 1)
     page.get_by_role("button", name="Delete").last.click()
     expect(names).to_have_count(n - 2)
+    page.locator(".ev .chip a").first.click()  # evidence opens the page viewer, as on Materials
+    expect(page.locator("dialog.viewer .viewer-img img")).to_be_visible()
+    shot(page, "03-map-evidence-viewer")
+    page.get_by_role("button", name="Close").click()
     page.locator(".occ select").first.select_option("practised")
     page.locator(".ev .chip button").first.click()
     page.get_by_role("button", name="Confirm map").click()
@@ -137,6 +170,9 @@ def slice05(page: Page, tmp: Path) -> None:
     r = httpx.get(f"http://127.0.0.1:{WEB}{href.split('#')[0]}")
     assert r.status_code == 200 and r.content.startswith(b"%PDF"), r.status_code
     shot(page, "05-review")
+    link.click()
+    expect(page.locator("dialog.viewer .viewer-img img")).to_be_visible()
+    page.get_by_role("button", name="Close").click()
 
 
 def slice06(page: Page, tmp: Path) -> None:

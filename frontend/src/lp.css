@@ -11,7 +11,8 @@
 .lp .wk.left { text-align: left; padding-left: 16px; }
 .lp .wk.due, .lp .c.due { background: #F3F4F7; }
 .lp .wk.due { border-radius: 6px 6px 0 0; }
-.lp .tn, .lp .c, .lp .by, .lp .fd { border-top: 1px solid var(--line); height: 38px; display: flex; align-items: center; }
+.lp .tn, .lp .c, .lp .by, .lp .fd { border-top: 1px solid var(--line); min-height: 38px; display: flex; align-items: center; }
+.lp .tn { padding: 6px 12px 6px 0; } /* long names wrap; the row grows instead of overlapping the next */
 .lp .tn { font-weight: 500; font-size: 13.5px; }
 .lp .c { justify-content: center; }
 .lp .d { width: 20px; height: 20px; border-radius: 5px; display: inline-block; }

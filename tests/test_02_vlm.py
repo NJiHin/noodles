@@ -137,3 +137,84 @@ def test_transcription_cache_expires_after_ttl(monkeypatch, tmp_path):
     assert list(tmp_path.glob("*.md")) == []  # pruned on start
     vlm.transcribe(b"page")
     assert len(calls) == 2
+
+
+def ollama_replying(monkeypatch, tmp_path, **body):
+    import httpx
+
+    from noodles.ollama import Ollama
+    calls = []
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: calls.append(1) or httpx.Response(
+        200, json=body, request=httpx.Request("POST", "http://x")))
+    return Ollama(tmp_path), calls
+
+
+def test_code_fence_stripped(monkeypatch, tmp_path):
+    vlm, _ = ollama_replying(monkeypatch, tmp_path, response="```markdown\n# Page\n\nText\n```", done_reason="stop")
+    assert vlm.transcribe(b"page") == "# Page\n\nText"
+
+
+def test_runaway_output_gives_none_and_is_cached(monkeypatch, tmp_path):
+    vlm, calls = ollama_replying(monkeypatch, tmp_path, response="loop\n" * 500, done_reason="length")
+    assert vlm.transcribe(b"page") is None
+    assert vlm.transcribe(b"page") is None and len(calls) == 1
+
+
+def test_page_without_vlm_text_keeps_parser_text(tmp_path, two_pages):
+    from noodles.ingest import transcribe_flagged
+
+    class Runaway:
+        def transcribe(self, png):
+            return None
+
+    pdf = tmp_path / "x.pdf"
+    pdf.write_bytes(two_pages)
+    pages = parse_pdfs([pdf])[pdf]
+    out = transcribe_flagged(pdf, pages, Runaway())
+    assert [origin for _, origin in out] == ["parser", "parser"]
+    assert out[1][0] == pages[1]["text"]
+
+
+def test_confirm_reports_transcription_progress(tmp_path, two_pages):
+    from fastapi.testclient import TestClient
+
+    from conftest import upload
+    from noodles.api import create_app
+    seen = []
+
+    class Spy:  # reads the progress endpoint while each flagged page is being transcribed
+        def transcribe(self, png):
+            seen.append(c.get(f"/courses/CS1010/uploads/{up['upload_id']}/progress").json())
+            return "# Page"
+
+    with TestClient(create_app(tmp_path / "d", tmp_path / "r", ollama=Spy())) as c:
+        up = upload(c, "CS1010", [("w1.pdf", two_pages), ("w2.pdf", two_pages)])
+        r = c.post("/courses/CS1010/versions", json={"upload_id": up["upload_id"], "weeks": {"w1.pdf": 1, "w2.pdf": 2}})
+        assert r.status_code == 200
+        # per file: pages transcribed out of that file's flagged pages; files are read in order
+        assert seen == [{"w1.pdf": {"done": 0, "total": 1}, "w2.pdf": {"done": 0, "total": 1}},
+                        {"w1.pdf": {"done": 1, "total": 1}, "w2.pdf": {"done": 0, "total": 1}}]
+        assert c.get(f"/courses/CS1010/uploads/{up['upload_id']}/progress").json() == {
+            "w1.pdf": {"done": 1, "total": 1}, "w2.pdf": {"done": 1, "total": 1}}
+
+
+def test_page_image_is_served_as_png(client, two_pages):
+    v = ingest(client, "CS1010", [("w1.pdf", two_pages)], {"w1.pdf": 1})
+    slug = client.get(f"/versions/{v}/files").json()["files"][0]["slug"]
+    r = client.get(f"/files/{v}/{slug}/pages/2.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert r.content.startswith(b"\x89PNG")
+    assert client.get(f"/files/{v}/{slug}/pages/3.png").status_code == 404
+
+
+def test_edited_page_text_replaces_it_for_listing_and_search(client, two_pages):
+    from noodles.student import recheck_search, student_conn
+    v = ingest(client, "CS1010", [("w1.pdf", two_pages)], {"w1.pdf": 1})
+    page = client.get(f"/versions/{v}/files").json()["files"][0]["pages"][1]
+    r = client.put(f"/versions/{v}/passages/{page['passage_id']}", json={"text": "Recursion calls itself on a smaller input."})
+    assert r.status_code == 200
+    saved = client.get(f"/versions/{v}/files").json()["files"][0]["pages"][1]
+    assert saved["text"] == "Recursion calls itself on a smaller input." and saved["origin"] == "vlm"
+    hits = recheck_search(student_conn(client.app_db), "recursion smaller", v, 1, None)
+    assert [h["passage_id"] for h in hits] == [page["passage_id"]]
+    assert client.put(f"/versions/{v}/passages/nope", json={"text": "x"}).status_code == 404

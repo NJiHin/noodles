@@ -10,3 +10,6 @@ export const post = <T,>(path: string, json: unknown) =>
 
 /** Link to a source PDF at a page (sys-design Stage 0, step 7). */
 export const pdfHref = (versionId: string, slug: string, page: number) => `/files/${versionId}/${slug}.pdf#page=${page}`
+
+/** A source page rendered as the PNG the VLM saw. */
+export const pageImg = (versionId: string, slug: string, page: number) => `/files/${versionId}/${slug}/pages/${page}.png`

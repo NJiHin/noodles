@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { api, pdfHref, post } from '../api'
+import { api, post } from '../api'
+import { PageLink } from '../PageViewer'
 import { RunProgress } from '../RunProgress'
 import { VersionShell, fmtDate } from '../Shell'
 import { FORMAT_LABEL, type Changes, type Mark, type ReviewQuestion, type ReviewResp, type Step, type Verdict } from '../types'
@@ -125,7 +126,7 @@ function StepItem({ s, n, cutoff, prereq, course, reload }: { s: Step; n: number
         {s.evidence.map((p) => (
           <div className="passage" key={p.passage_id}>
             {p.slug && p.version_id && p.page
-              ? <span><a href={pdfHref(p.version_id, p.slug, p.page)} target="_blank" rel="noreferrer">{p.course}, week {p.week}, {p.filename}, page {p.page}</a>{p.origin === 'vlm' && ' · transcribed by a vision model'}</span>
+              ? <span><PageLink vid={p.version_id} slug={p.slug} page={p.page}>{p.course}, week {p.week}, {p.filename}, page {p.page}</PageLink>{p.origin === 'vlm' && ' · transcribed by a vision model'}</span>
               : <span>{p.passage_id} (not a passage the student could see)</span>}
             {p.text && <q>{p.text}</q>}
           </div>

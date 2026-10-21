@@ -42,6 +42,8 @@ This file is the single source of truth for the design.
 
 The professor uploads all their files. The week for each file is guessed from its filename, and the professor confirms it. Assessments are uploaded with their answers or marking material, and the professor states which weeks each one covers (its `week_cutoff`) and its `current_format`.
 
+- **Open (UX):** an upload makes a version from only the files in that upload. Uploading one more file under an existing course code makes a new version holding just that file; it does not add to the course. Example: upload `Lecture1.pdf` for IS4401, then upload `Lecture2.pdf` for IS4401 because it was missed, and the second version contains only Lecture2. Nothing on the upload screen says all of a course's files must go in one upload. Needed: (1) the upload screen tells the professor to upload all the course's files together, and (2) a way to add files to an existing course, in case one was missed.
+
 **Parsing pipeline (one route for every file type):**
 1. **Upload:** `.pptx`, `.docx` and `.pdf`. Legacy `.ppt`/`.doc` are rejected with a request to re-save. Speaker notes and spreadsheets are left out.
 2. **Convert:** LibreOffice (headless) turns Office files into PDF. PDFs pass through unchanged.
@@ -51,9 +53,10 @@ The professor uploads all their files. The week for each file is guessed from it
    - it has very little text (likely a diagram drawn from shapes)
    - its text is mostly garbled characters (likely equations)
    - it has vector drawings (shape count from pypdfium2), which catches diagrams drawn from shapes that have many labels
-5. **Transcribe flagged pages:** pypdfium2 renders the whole page to an image, and Qwen3-VL 2B Instruct (one model, via Ollama, on the machine running the backend) returns the page as markdown: tables as markdown tables, equations as LaTeX, and diagrams described, covering only what's visible. Its output replaces the parser's text for that page and is marked `origin: vlm`. Each page's output is saved as soon as it finishes (`data/transcriptions/<hash>.md`, keyed by model, prompt and page image, kept 30 days), so a retry after a failure transcribes only the pages not yet done. The Instruct model, not Thinking: Qwen reports it ahead on page parsing (OmniDocBench, CC-OCR, OCRBench), and it skips the reasoning tokens that made Thinking take minutes per page. The report says when a step relies on a `vlm` passage.
+5. **Transcribe flagged pages:** pypdfium2 renders the whole page to an image, and Qwen3-VL 2B Instruct (one model, via Ollama, on the machine running the backend) returns the page as markdown: tables as markdown tables, equations as LaTeX, and diagrams described, covering only what's visible. Its output replaces the parser's text for that page and is marked `origin: vlm`. Output is capped at 2,048 tokens; a page that hits the cap (a repetition loop) keeps the parser's text instead. Each page's output is saved as soon as it finishes (`data/transcriptions/<hash>.md`, keyed by model, prompt and page image, kept 30 days), so a retry after a failure transcribes only the pages not yet done. The Instruct model, not Thinking: Qwen reports it ahead on page parsing (OmniDocBench, CC-OCR, OCRBench), and it skips the reasoning tokens that made Thinking take minutes per page. The report says when a step relies on a `vlm` passage. While the files are read, the upload screen shows, for each file, how many of its flagged pages are transcribed.
 6. **Passages:** one page or slide is one passage, with ID `<course>-w<week>-<file slug>-p<page>` (e.g. `CS1010-w5-slides-p12`). The file slug comes from the filename and is unique within a version, so two files in the same week can't collide. Written to the course store with its `origin` (`parser` or `vlm`).
 7. **Source files:** the PDF of each file (converted, or as uploaded) is kept at `data/files/<version_id>/<slug>.pdf` and served by the backend. Every passage citation in the UI links to it at that page (`#page=N`), opened in the browser's own PDF viewer.
+8. **Check and correct:** on the materials screen, and from any passage citation (course map evidence, review, learning path), clicking a page opens its text next to the page image (rendered as the VLM saw it). The professor can edit and save the text; it replaces the passage in place (origin unchanged) and later runs read the new text. A new version transcribes its pages afresh, so edits don't carry over.
 
 - Whole pages, not crops: no crop coordinates, no table border check, and nothing is clipped or missed when an element isn't detected.
 - Thresholds for "very little text" and "mostly garbled" are set during the build, checked on the demo courses.
@@ -334,7 +337,7 @@ Combined in code from the stage 2 and 3 outputs and the course map:
 
 **Course store (SQLite):**
 - One SQLite file for the whole project (`data/noodles.db`). Every course and version lives in it as rows keyed by `version_id`.
-- Written at ingestion (materials, assessments), after the question split, and after professor review (map, headings). Agent calls write to the run log, not here.
+- Written at ingestion (materials, assessments), after the question split, and after professor review (map, headings, page text corrections). Agent calls write to the run log, not here.
 
 ```sql
 -- Courses and versions

@@ -146,22 +146,31 @@ def flag_reasons(page: dict) -> list[str]:
     return reasons
 
 
-def transcribe_flagged(pdf: Path, pages: list[dict], vlm) -> list[tuple[str, str]]:
-    """(text, origin) per page: VLM markdown for flagged pages, parser text for the rest."""
+def page_png(doc: pypdfium2.PdfDocument, i: int) -> bytes:
+    """Page i (0-based) as the PNG the VLM sees; also served to the UI so reviewers see the same image."""
+    buf = io.BytesIO()
+    doc[i].render(scale=2).to_pil().save(buf, "PNG")
+    return buf.getvalue()
+
+
+def transcribe_flagged(pdf: Path, pages: list[dict], vlm, on_page=lambda: None) -> list[tuple[str, str]]:
+    """(text, origin) per page: VLM markdown for flagged pages, parser text for the rest or when the VLM gives none."""
     doc = pypdfium2.PdfDocument(pdf)
     out = []
     for i, p in enumerate(pages):
         if not flag_reasons(p):
             out.append((p["text"], "parser"))
             continue
-        buf = io.BytesIO()
-        doc[i].render(scale=2).to_pil().save(buf, "PNG")
-        out.append((vlm.transcribe(buf.getvalue()), "vlm"))
+        text = vlm.transcribe(page_png(doc, i))
+        on_page()
+        out.append((text, "vlm") if text else (p["text"], "parser"))
     return out
 
 
-def ingest(conn: sqlite3.Connection, files_dir: Path, code: str, staged: list[Path], weeks: dict[str, int], vlm) -> str:
-    """Store, parse and write a version. Reuses an existing version with the same ID."""
+def ingest(conn: sqlite3.Connection, files_dir: Path, code: str, staged: list[Path], weeks: dict[str, int], vlm,
+           progress) -> str:
+    """Store, parse and write a version. Reuses an existing version with the same ID.
+    progress({filename: {"done", "total"}}) is called as each file's flagged pages are transcribed."""
     files = [(p.name, p.read_bytes(), weeks[p.name]) for p in staged]
     vid = version_id(code, files)
     if conn.execute("SELECT 1 FROM versions WHERE id = ?", (vid,)).fetchone():
@@ -175,7 +184,18 @@ def ingest(conn: sqlite3.Connection, files_dir: Path, code: str, staged: list[Pa
         for src, pdf in zip(staged, pdfs):
             to_pdf(src, pdf)
         parsed = parse_pdfs(pdfs)
-        pages = {pdf: transcribe_flagged(pdf, parsed[pdf], vlm) for pdf in pdfs}
+        total = {src.name: sum(bool(flag_reasons(p)) for p in parsed[pdf]) for src, pdf in zip(staged, pdfs)}
+        done = dict.fromkeys(total, 0)
+
+        def report():
+            progress({n: {"done": done[n], "total": total[n]} for n in total})
+
+        def page_done(name):
+            done[name] += 1
+            report()
+        report()
+        pages = {pdf: transcribe_flagged(pdf, parsed[pdf], vlm, lambda n=src.name: page_done(n))
+                 for src, pdf in zip(staged, pdfs)}
 
         try:
             with conn:  # PDFs move inside the transaction, so DB rows and stored files land together

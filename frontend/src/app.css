@@ -15,9 +15,28 @@ table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: to
 .file summary { cursor: pointer; display: flex; gap: 12px; align-items: baseline; }
 .file summary b { font-weight: 600; }
 .file summary small { color: var(--ink-3); }
-.pg { display: grid; grid-template-columns: 70px 1fr; gap: 12px; padding: 8px 0 8px 16px; font-size: 13px; color: var(--ink-2); }
-.pg a { color: var(--accent); text-decoration: none; font-weight: 500; }
-.pg p { white-space: pre-wrap; max-height: 7.5em; overflow: hidden; }
+.pg-row { display: grid; grid-template-columns: 70px 44px 1fr; gap: 12px; align-items: baseline; width: 100%; padding: 7px 8px 7px 16px; border: 0; border-radius: 6px; background: none; font: 13px var(--sans); color: var(--ink-2); text-align: left; cursor: pointer; }
+.pg-row:hover { background: var(--bg); }
+.pg-row .n { color: var(--accent); font-weight: 500; }
+.pg-row .first { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.viewer { border: 0; padding: 0; border-radius: 12px; width: calc(100vw - 64px); height: calc(100vh - 64px); max-width: none; max-height: none; margin: auto; background: var(--surface); color: var(--ink); }
+.viewer[open] { display: grid; grid-template-rows: auto 1fr; overflow: hidden; }
+.viewer::backdrop { background: rgba(23, 25, 28, .45); }
+.viewer-head { display: flex; gap: 12px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.viewer-head small { color: var(--ink-3); }
+.viewer-head a.btn { text-decoration: none; }
+.viewer-head .x { margin-left: auto; }
+.viewer-body { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+.viewer-text { padding: 20px 24px; overflow: auto; white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; color: var(--ink); }
+.viewer-text .src { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 12.5px; color: var(--ink-3); white-space: normal; }
+.viewer-text .src .btn { margin-left: auto; padding: 4px 10px; font-size: 12.5px; }
+.viewer-text.editing { display: grid; grid-template-rows: auto 1fr auto; gap: 10px; white-space: normal; }
+.viewer-text.editing .src { margin-bottom: 0; }
+.viewer-text textarea { width: 100%; height: 100%; resize: none; font: 13px/1.55 ui-monospace, Menlo, monospace; color: var(--ink); border: 1px solid var(--accent); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.viewer-text .edit-bar { display: flex; gap: 8px; align-items: center; }
+.viewer-text .edit-bar .muted { font-size: 12.5px; margin-left: 6px; }
+.viewer-img { background: var(--bg); padding: 20px; overflow: auto; border-left: 1px solid var(--line); }
+.viewer-img img { width: 100%; display: block; border: 1px solid var(--line); background: #fff; }
 .muted { color: var(--ink-3); }
 .progress { margin-top: 12px; }
 .progress-head { display: flex; justify-content: space-between; font-size: 13.5px; }
@@ -28,7 +47,8 @@ table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: to
 .topic { padding: 16px 0; border-top: 1px solid var(--line); }
 .topic:first-child { border-top: 0; padding-top: 0; }
 .topic-head { display: flex; gap: 10px; align-items: center; }
-.topic-name { font: 600 15px var(--sans); border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; margin-left: -7px; background: transparent; color: var(--ink); }
+/* shortcut: field-sizing grows the input to its text in Chromium only; Safari/Firefox keep the default width. */
+.topic-name { field-sizing: content; flex: none; min-width: 12ch; max-width: 100%; font: 600 15px var(--sans); border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; margin-left: -7px; background: transparent; color: var(--ink); }
 .topic-name:hover, .topic-name:focus { border-color: var(--line); background: var(--surface); }
 .topic-head .id { font-size: 12.5px; margin-right: auto; }
 .topic-head select, .occ select, .aliases input { font: 13px var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: var(--surface); color: var(--ink); }
@@ -60,3 +80,8 @@ table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: to
 .id-diff b { width: 100%; font-weight: 600; color: var(--ink-2); }
 .id-diff .chip { border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; font-size: 12.5px; background: var(--bg); }
 .id-diff .chip select { font: 12px var(--sans); margin-left: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
+.st { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-3); white-space: nowrap; }
+.st.on { color: var(--ink-2); }
+.spin { width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }

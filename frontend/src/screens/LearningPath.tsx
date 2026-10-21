@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
-import { api, pdfHref } from '../api'
+import { api } from '../api'
+import { PageLink } from '../PageViewer'
 import { VersionShell } from '../Shell'
 import type { Changes, Cited } from '../types'
 
@@ -60,10 +61,11 @@ export function LearningPath({ vid }: { vid: string }) {
                   <div className={`fd${t.finding === 'only_mentioned' ? ' thin' : t.finding ? ' n' : ''}`}>
                     {t.finding === 'not_assessed' && 'Not assessed'}
                     {t.finding === 'only_mentioned' && t.mentioned[0].slug && (
-                      <a href={pdfHref(t.mentioned[0].version_id!, t.mentioned[0].slug, t.mentioned[0].page!)} target="_blank" rel="noreferrer"
-                        title={t.mentioned.map((m) => `${short(m.question_id)} (weeks 1 to ${m.week_cutoff})`).join(', ')}>
-                        Only mentioned, week {t.mentioned[0].week} page {t.mentioned[0].page}
-                      </a>
+                      <span title={t.mentioned.map((m) => `${short(m.question_id)} (weeks 1 to ${m.week_cutoff})`).join(', ')}>
+                        <PageLink vid={t.mentioned[0].version_id!} slug={t.mentioned[0].slug} page={t.mentioned[0].page!}>
+                          Only mentioned, week {t.mentioned[0].week} page {t.mentioned[0].page}
+                        </PageLink>
+                      </span>
                     )}
                   </div>
                 </Fragment>

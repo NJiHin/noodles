@@ -12,7 +12,8 @@ import shutil
 import tempfile
 
 from fastapi import FastAPI, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+import pypdfium2
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from noodles import db
@@ -24,7 +25,7 @@ from noodles.student import test_drive
 from noodles.web import Verdict, exposure
 from noodles.cost import run_cost
 from noodles.report import changes, learning_path, recommend, summary
-from noodles.ingest import IngestError, check_upload_name, guess_week, ingest, read_document, slugify
+from noodles.ingest import IngestError, check_upload_name, guess_week, ingest, page_png, read_document, slugify
 
 ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -50,6 +51,10 @@ class OverrideBody(BaseModel):
     verdict: Verdict
 
 
+class PassageBody(BaseModel):
+    text: str
+
+
 class ConfirmWeeks(BaseModel):
     upload_id: str
     weeks: dict[str, int]
@@ -64,6 +69,7 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
     app = FastAPI(title="noodles")
     app.state.openai, app.state.db_path = openai, db_path
     tasks: dict[str, asyncio.Task] = {}
+    ingest_progress: dict[str, dict] = {}  # upload_id -> {filename: {done, total}} flagged pages transcribed so far
 
     @contextmanager
     def conn():
@@ -479,11 +485,17 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             raise HTTPException(422, f"confirm a week (1 or more) for every file: {', '.join(missing)}")
         with conn() as c:
             try:
-                return {"version_id": ingest(c, files_dir, code, staged, body.weeks, vlm)}
+                return {"version_id": ingest(c, files_dir, code, staged, body.weeks, vlm,
+                                             lambda files: ingest_progress.__setitem__(body.upload_id, files))}
             except IngestError as e:
                 raise HTTPException(422, str(e))
             except OllamaError as e:
                 raise HTTPException(503, str(e))
+
+    @app.get("/courses/{code}/uploads/{upload_id}/progress")
+    def upload_progress(code: str, upload_id: str):
+        """Per file, flagged pages transcribed so far while its confirm runs; empty until the files are parsed."""
+        return ingest_progress.get(upload_id, {})
 
     @app.get("/versions/{vid}")
     def get_version(vid: str):
@@ -503,12 +515,30 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                 out.append({**dict(f), "pages": [dict(p) for p in pages]})
         return {"version_id": vid, "course_code": v["course_code"], "created_at": v["created_at"], "files": out}
 
+    @app.put("/versions/{vid}/passages/{pid}")
+    def edit_passage(vid: str, pid: str, body: PassageBody):
+        """Hand correction of a page's text; later runs read the new text (its cache fingerprint changes)."""
+        with conn() as c, c:
+            if not c.execute("UPDATE passages SET text = ? WHERE version_id = ? AND passage_id = ?",
+                             (body.text, vid, pid)).rowcount:
+                raise HTTPException(404, "page not found")
+            c.execute("INSERT INTO passages_fts(passages_fts) VALUES('rebuild')")
+        return {"passage_id": pid, "text": body.text}
+
     @app.get("/files/{vid}/{slug}.pdf")
     def source_pdf(vid: str, slug: str):
         path = files_dir / safe_id(vid) / f"{safe_id(slug)}.pdf"
         if not path.exists():
             raise HTTPException(404, "file not found")
         return FileResponse(path, media_type="application/pdf")
+
+    @app.get("/files/{vid}/{slug}/pages/{page}.png")
+    def page_image(vid: str, slug: str, page: int):
+        path = files_dir / safe_id(vid) / f"{safe_id(slug)}.pdf"
+        doc = pypdfium2.PdfDocument(path) if path.exists() else None
+        if not doc or not 1 <= page <= len(doc):
+            raise HTTPException(404, "page not found")
+        return Response(page_png(doc, page - 1), media_type="image/png")
 
     return app
 

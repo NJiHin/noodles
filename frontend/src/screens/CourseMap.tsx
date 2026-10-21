@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { api, pdfHref, post } from '../api'
+import { api, post } from '../api'
+import { PageLink } from '../PageViewer'
 import { RunProgress } from '../RunProgress'
 import { VersionShell, fmtDate } from '../Shell'
 import { DEPTHS, type Concept, type PassageRef, type RunStatus } from '../types'
@@ -152,7 +153,7 @@ export function CourseMap({ vid }: { vid: string }) {
                         const p = m.passages[pid]
                         return (
                           <span className={`chip ${p ? '' : 'missing'}`} key={pid}>
-                            {p ? <a href={pdfHref(vid, p.slug, p.page)} target="_blank" rel="noreferrer">{p.slug} p{p.page}</a>
+                            {p ? <PageLink vid={vid} slug={p.slug} page={p.page}>{p.slug} p{p.page}</PageLink>
                               : <span title="No such passage in this version">{pid} (not found)</span>}
                             <button aria-label={`Remove ${pid} from ${c.concept_id}`} onClick={() => set(i, {
                               ...c, occurrences: c.occurrences.map((x, k) => (k === oi ? { ...x, evidence: x.evidence.filter((e) => e !== pid) } : x)),
