@@ -106,6 +106,26 @@ table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: to
 .ed-foot select { min-width: 0; width: 220px; } /* options are topic names; without a width the longest one sets it */
 .ed-id { font-size: 12px; color: var(--ink-3); }
 .btn.danger { color: var(--bad); }
+.btn.sm { padding: 4px 10px; font-size: 12.5px; }
+.btn.danger-fill { background: var(--bad); color: #fff; border-color: var(--bad); }
+.btn:disabled { opacity: .5; cursor: default; }
+.confirm { margin: auto; border: 0; border-radius: 12px; padding: 20px 22px; width: 460px; background: var(--surface); color: var(--ink); box-shadow: 0 12px 40px rgba(0,0,0,.18); }
+.confirm[open] { display: grid; gap: 10px; }
+.confirm::backdrop { background: rgba(23, 25, 28, .45); }
+.confirm h2 { font-size: 16px; }
+.confirm p { font-size: 13.5px; color: var(--ink-2); }
+.confirm label { font-size: 13px; color: var(--ink-2); display: grid; gap: 6px; }
+.confirm input { font: 14px var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
+.confirm .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+.ctx { background: var(--bg); border-radius: 8px; padding: 12px 14px; margin: 12px 0 4px; display: grid; gap: 8px; }
+.ctx-h { display: flex; gap: 10px; align-items: baseline; font-size: 13px; }
+.ctx-h small { color: var(--ink-3); font-size: 12.5px; }
+.ctx textarea, .own-ctx textarea { width: 100%; font: 13px/1.5 var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--surface); color: var(--ink); resize: vertical; }
+.own-ctx { font-size: 12.5px; color: var(--ink-3); }
+.own-ctx summary { cursor: pointer; }
+.file summary .btn { margin-left: auto; }
+.btn.rerun { display: inline-flex; align-items: center; gap: 6px; }
+.steps-h { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; }
 /* delete and merge run in a view transition: the removed row fades, the rows below slide up */
 ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: 200ms; animation-timing-function: var(--ease-out); }
 @media (prefers-reduced-motion: reduce) {
@@ -121,7 +141,8 @@ table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: to
 .ev .chip button { border: 0; background: none; color: var(--ink-3); cursor: pointer; font-size: 14px; padding: 0 4px; }
 .panel h2 { font-size: 14px; font-weight: 600; }
 .panel .hint { color: var(--ink-3); font-size: 13px; margin-top: 2px; }
-.a-head { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
+.a-head { display: flex; align-items: center; gap: 10px; }
+.a-head > div:first-child { margin-right: auto; }
 .orphans { margin-top: 12px; background: var(--bad-t); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--bad); }
 .orphans p { color: var(--ink-2); margin-top: 4px; }
 .qs-edit { margin-top: 12px; }

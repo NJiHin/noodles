@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { FileStatus, activeFile, useProgress } from '../FileProgress'
+import { ConfirmDialog } from '../ConfirmDialog'
 import { RunProgress } from '../RunProgress'
 import { VersionShell } from '../Shell'
 import { FORMAT_LABEL, QTYPES, type Assessment, type Question } from '../types'
@@ -76,7 +77,12 @@ export function Assessments({ vid }: { vid: string }) {
 function AssessmentPanel({ vid, a, reload }: { vid: string; a: Assessment; reload: () => void }) {
   const [qs, setQs] = useState<Question[]>(a.questions)
   const [err, setErr] = useState('')
+  const [deleting, setDeleting] = useState(false)
   const set = (i: number, q: Partial<Question>) => setQs(qs.map((x, j) => (j === i ? { ...x, ...q } : x)))
+  const label = (q: Question) => q.question_id.replace(`${a.assessment_id}-`, '')
+  // questions with identical context share one box, shown before the first of them; saving it rewrites all of them
+  const sharing = (ctx: string) => qs.filter((x) => x.context === ctx)
+  const setShared = (from: string, to: string) => setQs(qs.map((x) => (x.context === from ? { ...x, context: to } : x)))
 
   async function confirm() {
     setErr('')
@@ -100,7 +106,14 @@ function AssessmentPanel({ vid, a, reload }: { vid: string; a: Assessment; reloa
         {a.state === 'confirmed' && <span className="v ok">Confirmed, {a.questions.length} questions</span>}
         {a.state === 'draft' && <span className="v part">Check and confirm{flagged ? `, ${flagged} flagged` : ''}</span>}
         {(a.state === 'failed' || a.state === 'interrupted') && <span className="v bad">Split {a.state}</span>}
+        <button className="btn sm danger" onClick={() => setDeleting(true)}>Delete assessment</button>
       </div>
+      {deleting && (
+        <ConfirmDialog title={`Delete ${a.assessment_id}?`} action="Delete assessment" onClose={() => setDeleting(false)}
+          onConfirm={() => api(`/versions/${vid}/assessments/${a.assessment_id}`, { method: 'DELETE' }).then(reload)}>
+          Its files and {a.questions.length} question{a.questions.length === 1 ? '' : 's'} are removed, so they leave the assessment review and the summary. Earlier test-drive results stay in the run logs.
+        </ConfirmDialog>
+      )}
       {a.state === 'running' && a.run && <RunProgress runId={a.run.run_id} onEnd={reload} />}
       {a.run?.error && a.state !== 'confirmed' && <p className="err">{a.run.error}</p>}
 
@@ -115,7 +128,16 @@ function AssessmentPanel({ vid, a, reload }: { vid: string; a: Assessment; reloa
         <>
           <div className="qs-edit">
             {qs.map((q, i) => (
-              <div className="q-edit" key={q.question_id}>
+              <div key={q.question_id}>
+              {q.context !== null && qs.findIndex((x) => x.context === q.context) === i && (
+                <div className="ctx">
+                  <div className="ctx-h"><b>Context</b>
+                    {sharing(q.context).length > 1 && <small>shared by {sharing(q.context).map(label).join(', ')} · editing it changes all {sharing(q.context).length}</small>}</div>
+                  <textarea aria-label={`Context for ${sharing(q.context).map(label).join(', ')}`} value={q.context} rows={6}
+                    onChange={(e) => setShared(q.context!, e.target.value)} />
+                </div>
+              )}
+              <div className="q-edit">
                 <div className="q-top">
                   <b>{q.question_id.replace(`${a.assessment_id}-`, '')}</b>
                   <select aria-label={`Type of ${q.question_id}`} value={q.type} onChange={(e) => set(i, { type: e.target.value as Question['type'] })}>
@@ -132,6 +154,12 @@ function AssessmentPanel({ vid, a, reload }: { vid: string; a: Assessment; reloa
                 )}
                 <textarea aria-label={`Marking material of ${q.question_id}`} className="mm" placeholder="No marking material: AI exposure won't be assessed for this question"
                   value={q.marking_material ?? ''} rows={2} onChange={(e) => set(i, { marking_material: e.target.value || null })} />
+                <details className="own-ctx">
+                  <summary>{q.context === null ? 'Add context for this question' : 'Edit the context for this question only'}</summary>
+                  <textarea aria-label={`Own context, ${q.question_id}`} value={q.context ?? ''} rows={4} placeholder="Scenario, data or formulas the question needs"
+                    onChange={(e) => set(i, { context: e.target.value || null })} />
+                </details>
+              </div>
               </div>
             ))}
           </div>

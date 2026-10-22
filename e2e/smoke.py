@@ -337,9 +337,45 @@ def slice13(page: Page, tmp: Path) -> None:
     page.get_by_role("link", name="Summary").click()
     expect(page.locator(".notice.warn")).to_contain_text("Rebuild and confirm the course map first")
     shot(page, "13-summary-outdated")
+    return {"latest": vid}
 
 
-SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08, slice09, slice10, slice11, slice12, slice13]
+def slice14(page: Page, tmp: Path) -> None:
+    """Rerun one question; delete a file, the assessment, then the course (typed confirmation)."""
+    vid, a = STATE["latest"], f"http://127.0.0.1:{API}"
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{vid}/review")
+    expect(page.locator(".detail .notice.warn")).to_contain_text("This result is from before")
+    page.locator(".steps-h").get_by_role("button", name="Rerun this question").click()
+    expect(page.locator(".detail .notice.warn")).to_have_count(0, timeout=30_000)  # its new result is from after the change
+    review = httpx.get(f"{a}/versions/{vid}/review").json()["questions"]
+    assert len({q["run_id"] for q in review if q["run_id"]}) == 2, "the rerun question comes from a second run"
+    shot(page, "14-review-rerun")
+
+    page.get_by_role("link", name="Materials").click()
+    page.locator(".file", has_text="Week03_Recursion.pdf").get_by_role("button", name="Delete").click()
+    expect(page.locator("dialog.confirm")).to_be_visible()
+    shot(page, "14-delete-file")
+    page.locator("dialog.confirm").get_by_role("button", name="Delete file").click()
+    expect(page.locator(".file", has_text="Week03_Recursion.pdf")).to_have_count(0)
+    expect(page.locator(".notice.info")).to_contain_text("removed")
+
+    page.get_by_role("link", name="Assessments").click()
+    page.get_by_role("button", name="Delete assessment").first.click()
+    page.locator("dialog.confirm").get_by_role("button", name="Delete assessment").click()
+    expect(page.get_by_role("button", name="Delete assessment")).to_have_count(0)
+
+    page.goto(f"http://127.0.0.1:{WEB}/#/")
+    page.get_by_role("button", name="Delete course").first.click()
+    dialog = page.locator("dialog.confirm")
+    expect(dialog.get_by_role("button", name="Delete course")).to_be_disabled()
+    dialog.get_by_placeholder("CS1010").fill("CS1010")
+    shot(page, "14-delete-course")
+    dialog.get_by_role("button", name="Delete course").click()
+    expect(page.locator(".list-plain li", has_text="CS1010")).to_have_count(0)
+    assert all(c["code"] != "CS1010" for c in httpx.get(f"{a}/courses").json())
+
+
+SLICES = [slice01, slice02, slice03, slice04, slice05, slice06, slice07, slice08, slice09, slice10, slice11, slice12, slice13, slice14]
 STATE: dict = {}
 
 

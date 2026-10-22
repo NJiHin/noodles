@@ -52,7 +52,11 @@ The professor uploads all their files. The week for each file is guessed from it
     - Materials: new files were added on that date.
     - Course map: new materials were added since the map was built; rebuild it. Only the weeks of the added files are re-extracted, and topic IDs stay the same.
     - Summary and assessment review: these results are from before new materials were added. If the map hasn't been rebuilt and confirmed since, the notice says to do that first; otherwise, to rerun the test-drive.
-  - A map is outdated when it was built before `materials_changed_at`; results are outdated when their test-drive ran before it. Assessments are not affected: question extraction reads only the assessment files.
+  - A map is outdated when it was built before `materials_changed_at`; a question's result is outdated when the test-drive that produced it ran before it. Assessments are not affected: question extraction reads only the assessment files.
+- **Deleting:**
+  - **A file** (materials screen): changes the version in place like adding files: its pages, and map evidence on them, are removed, the fingerprint is recomputed, `materials_changed_at` is set and the same notices show, naming the removed file. A version's last file can't be deleted.
+  - **An assessment** (assessments screen): its files and questions are removed, so they leave the review and the summary. Earlier test-drive results stay in the run logs but are no longer shown.
+  - **A course** (home screen, once per course): the course, all its versions with their stored files, and its run logs (`runs/<course_code>/`) are deleted, after the professor types the course code. Saved page transcriptions are not tied to a course and expire on their own. Single versions can't be deleted.
 
 **Parsing pipeline (one route for every file type):**
 1. **Upload:** `.pptx`, `.docx` and `.pdf`. Legacy `.ppt`/`.doc` are rejected with a request to re-save. Speaker notes and spreadsheets are left out.

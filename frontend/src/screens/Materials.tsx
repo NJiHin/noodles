@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { ConfirmDialog } from '../ConfirmDialog'
 import { PageViewer, type Page } from '../PageViewer'
 import { AddedNotice, VersionShell } from '../Shell'
 
@@ -15,7 +16,9 @@ export function Materials({ vid }: { vid: string }) {
   const [v, setV] = useState<Version | null>(null)
   const [err, setErr] = useState('')
   const [open, setOpen] = useState<{ file: File; page: Page } | null>(null)
-  useEffect(() => { api<Version>(`/versions/${vid}/files`).then(setV).catch((e) => setErr(e.message)) }, [vid])
+  const [deleting, setDeleting] = useState<File | null>(null)
+  const load = () => api<Version>(`/versions/${vid}/files`).then(setV).catch((e) => setErr(e.message))
+  useEffect(() => { load() }, [vid]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const weeks = v ? [...new Set(v.files.map((f) => f.week))] : []
   const pages = v ? v.files.reduce((n, f) => n + f.pages.length, 0) : 0
@@ -33,7 +36,7 @@ export function Materials({ vid }: { vid: string }) {
           <h1>Materials</h1>
           <p>{v ? `${v.files.length} files, ${pages} pages. One passage per page; click a page to see it next to its text.` : err || 'Loading…'}</p>
         </div>
-        <AddedNotice vid={vid} screen="materials" />
+        <AddedNotice key={v?.files.length} vid={vid} screen="materials" />
         {v && (
           <section className="panel">
             {weeks.map((w) => (
@@ -41,7 +44,9 @@ export function Materials({ vid }: { vid: string }) {
                 <div className="week-h">Week {w}</div>
                 {v.files.filter((f) => f.week === w).map((f) => (
                   <details className="file" key={f.slug}>
-                    <summary><b>{f.filename}</b><small>{f.pages.length} page{f.pages.length === 1 ? '' : 's'}</small>{vlmCount(f) > 0 && <small>· {vlmCount(f)} transcribed (vlm)</small>}</summary>
+                    <summary><b>{f.filename}</b><small>{f.pages.length} page{f.pages.length === 1 ? '' : 's'}</small>{vlmCount(f) > 0 && <small>· {vlmCount(f)} transcribed (vlm)</small>}
+                      <button className="btn sm danger" disabled={v.files.length === 1} title={v.files.length === 1 ? "A version's last file can't be deleted" : undefined}
+                        onClick={(e) => { e.preventDefault(); setDeleting(f) }}>Delete</button></summary>
                     {f.pages.map((p) => (
                       <button className="pg-row" key={p.passage_id} onClick={() => setOpen({ file: f, page: p })}>
                         <span className="n">Page {p.page}</span>
@@ -54,6 +59,13 @@ export function Materials({ vid }: { vid: string }) {
               </div>
             ))}
           </section>
+        )}
+        {deleting && (
+          <ConfirmDialog title={`Delete ${deleting.filename}?`} action="Delete file" onClose={() => setDeleting(null)}
+            onConfirm={() => api(`/versions/${vid}/files/${deleting.slug}`, { method: 'DELETE' }).then(load)}>
+            Its {deleting.pages.length} page{deleting.pages.length === 1 ? '' : 's'}, and any corrections on them, are removed from this version.
+            The course map and test-drive results then show as outdated until you rebuild and rerun.
+          </ConfirmDialog>
         )}
         {open && <PageViewer key={open.page.passage_id} vid={vid} slug={open.file.slug} page={open.page.page} onSaved={saved} onClose={() => setOpen(null)} />}
       </main>

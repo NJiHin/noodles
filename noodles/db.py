@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS versions (
   created_at TEXT NOT NULL,
   map_reviewed_at TEXT,
   fingerprint TEXT,
-  materials_changed_at TEXT
+  materials_changed_at TEXT,
+  removed_files TEXT
 );
 CREATE TABLE IF NOT EXISTS files (
   version_id TEXT NOT NULL REFERENCES versions(id),
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS questions (
   version_id TEXT NOT NULL,
   question_id TEXT NOT NULL,
   assessment_id TEXT NOT NULL,
+  context TEXT,
   text TEXT NOT NULL,
   options TEXT,
   type TEXT NOT NULL CHECK (type IN ('mcq', 'true_false', 'short', 'numeric', 'open', 'code')),
@@ -110,7 +112,8 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 # columns added after a table was first created: databases made before them get them on start
-ADDED = {"versions": ["fingerprint TEXT", "materials_changed_at TEXT"], "files": ["sha256 TEXT", "added_at TEXT"]}
+ADDED = {"versions": ["fingerprint TEXT", "materials_changed_at TEXT", "removed_files TEXT"],
+         "files": ["sha256 TEXT", "added_at TEXT"], "questions": ["context TEXT"]}
 
 
 def init(path: Path) -> None:

@@ -31,6 +31,10 @@ class IngestError(Exception):
     pass
 
 
+class LastFile(IngestError):
+    pass
+
+
 class FingerprintTaken(IngestError):
     """Adding the files would give the version the same materials as another version of the course."""
     def __init__(self, other: str):
@@ -244,6 +248,13 @@ def ingest(conn: sqlite3.Connection, files_dir: Path, code: str, staged: list[Pa
     return vid
 
 
+def stored_sha(files_dir: Path, vid: str, f) -> str:
+    """A stored file's upload hash, for the fingerprint.
+    shortcut: files stored before sha256 was recorded use their stored PDF's hash, which equals the upload's only for
+    PDF uploads; such a version just isn't found again by re-uploading its Office files"""
+    return f["sha256"] or sha256((files_dir / vid / f"{f['slug']}.pdf").read_bytes())
+
+
 def add_files(conn: sqlite3.Connection, files_dir: Path, vid: str, staged: list[Path], weeks: dict[str, int], vlm,
               progress) -> None:
     """Add files to a version in place; a file with the same name as one in the version replaces it.
@@ -258,10 +269,7 @@ def add_files(conn: sqlite3.Connection, files_dir: Path, vid: str, staged: list[
         taken.add(slug)
         slugs.append(slug)
     shas = {p.name: sha256(p.read_bytes()) for p in staged}
-    # shortcut: files stored before sha256 was recorded use their stored PDF's hash, which equals the upload's only for
-    # PDF uploads; such a version just isn't found again by re-uploading its Office files
-    kept = [(n, f["sha256"] or sha256((files_dir / vid / f"{f['slug']}.pdf").read_bytes()), f["week"])
-            for n, f in existing.items() if n not in shas]
+    kept = [(n, stored_sha(files_dir, vid, f), f["week"]) for n, f in existing.items() if n not in shas]
     fp = fingerprint(code, kept + [(p.name, shas[p.name], weeks[p.name]) for p in staged])
     if row := conn.execute("SELECT id FROM versions WHERE fingerprint = ? AND id != ?", (fp, vid)).fetchone():
         raise FingerprintTaken(row["id"])
@@ -289,7 +297,10 @@ def add_files(conn: sqlite3.Connection, files_dir: Path, vid: str, staged: list[
                     # pages that stay keep their ID (map evidence still points at them) and take the new text
                     conn.executemany(INSERT_PASSAGE + " ON CONFLICT (version_id, passage_id) DO UPDATE SET "
                                      "text = excluded.text, origin = excluded.origin, page = excluded.page, heading = NULL", rows)
-                conn.execute("UPDATE versions SET fingerprint = ?, materials_changed_at = ? WHERE id = ?", (fp, now, vid))
+                removed = json.loads(conn.execute("SELECT removed_files FROM versions WHERE id = ?", (vid,)).fetchone()[0] or "[]")
+                removed = [r for r in removed if r["filename"] not in shas]  # a file added back is no longer removed
+                conn.execute("UPDATE versions SET fingerprint = ?, materials_changed_at = ?, removed_files = ? WHERE id = ?",
+                             (fp, now, json.dumps(removed), vid))
                 conn.execute("INSERT INTO passages_fts(passages_fts) VALUES('rebuild')")
                 for slug, pdf in zip(slugs, pdfs):
                     shutil.move(pdf, files_dir / vid / f"{slug}.pdf")
@@ -299,6 +310,31 @@ def add_files(conn: sqlite3.Connection, files_dir: Path, vid: str, staged: list[
             raise
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def remove_file(conn: sqlite3.Connection, files_dir: Path, vid: str, slug: str) -> None:
+    """Delete one file from a version in place: its pages, map evidence on them and its stored PDF go, the fingerprint
+    is recomputed and the change is dated, as when files are added. Raises KeyError for an unknown file, LastFile for
+    the version's only file, FingerprintTaken if the rest would match another version of the course."""
+    v = conn.execute("SELECT * FROM versions WHERE id = ?", (vid,)).fetchone()
+    files = {r["slug"]: dict(r) for r in conn.execute("SELECT * FROM files WHERE version_id = ?", (vid,))}
+    gone = files[slug]
+    if len(files) == 1:
+        raise LastFile("a version's last file can't be deleted")
+    fp = fingerprint(v["course_code"], [(f["filename"], stored_sha(files_dir, vid, f), f["week"]) for s, f in files.items() if s != slug])
+    if row := conn.execute("SELECT id FROM versions WHERE fingerprint = ? AND id != ?", (fp, vid)).fetchone():
+        raise FingerprintTaken(row["id"])
+    removed = [r for r in json.loads(v["removed_files"] or "[]") if r["filename"] != gone["filename"]]
+    removed.append({"filename": gone["filename"], "week": gone["week"]})
+    with conn:
+        pids = [(vid, r[0]) for r in conn.execute("SELECT passage_id FROM passages WHERE version_id = ? AND file_slug = ?", (vid, slug))]
+        conn.executemany("DELETE FROM evidence WHERE version_id = ? AND passage_id = ?", pids)
+        conn.execute("DELETE FROM passages WHERE version_id = ? AND file_slug = ?", (vid, slug))
+        conn.execute("DELETE FROM files WHERE version_id = ? AND slug = ?", (vid, slug))
+        conn.execute("UPDATE versions SET fingerprint = ?, materials_changed_at = ?, removed_files = ? WHERE id = ?",
+                     (fp, datetime.now(timezone.utc).isoformat(), json.dumps(removed), vid))
+        conn.execute("INSERT INTO passages_fts(passages_fts) VALUES('rebuild')")
+    (files_dir / vid / f"{slug}.pdf").unlink(missing_ok=True)
 
 
 def read_document(src: Path, vlm, progress) -> str:

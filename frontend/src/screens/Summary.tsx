@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
-import { api } from '../api'
+import { api, post } from '../api'
+import { go } from '../useHash'
 import { AddedNotice, VersionShell, fmtDate } from '../Shell'
 import type { Summary as S } from '../types'
 
@@ -48,7 +49,11 @@ export function Summary({ vid }: { vid: string }) {
               <div><b>{s.figures.never_assessed}</b>topic{s.figures.never_assessed === 1 ? '' : 's'} never assessed</div>
             </div>
           </div>
-          <AddedNotice key={s.run?.run_id} vid={vid} screen="results" />
+          <AddedNotice key={s.run?.run_id} vid={vid} screen="results" results={{
+            outdated: s.outdated.length, total: s.assessed,
+            rerun: () => post(`/versions/${vid}/test-drives`, { prerequisite: s.prerequisite, questions: s.outdated })
+              .then(() => go(`/v/${vid}/review`)).catch((e) => setErr(e.message)),
+          }} />
 
           <div className="row">
             <section className="panel">

@@ -31,7 +31,8 @@ verdict: "correct", "partial" or "incorrect". reason: one line."""
 
 
 def question_text(q: dict) -> str:
-    return q["text"] + ("".join(f"\n({chr(65 + i)}) {o}" for i, o in enumerate(q["options"])) if q["options"] else "")
+    """What every agent sees: the question's context (if any), then the question and its options."""
+    return (f"{q['context']}\n\n" if q["context"] else "") + q["text"] + ("".join(f"\n({chr(65 + i)}) {o}" for i, o in enumerate(q["options"])) if q["options"] else "")
 
 
 async def web_agent(run: Run, q: dict) -> dict:

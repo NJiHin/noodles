@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, post } from '../api'
+import { ConfirmDialog } from '../ConfirmDialog'
 import { FileStatus, activeFile, useProgress } from '../FileProgress'
 import { Shell, fmtDate } from '../Shell'
 import { go } from '../useHash'
@@ -17,9 +18,11 @@ export function Home() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [target, setTarget] = useState<Target | null>(null)  // set while adding files to an existing version
+  const [deleting, setDeleting] = useState<Course | null>(null)
   const addInput = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { api<Course[]>('/courses').then(setCourses).catch((e) => setErr(e.message)) }, [])
+  const loadCourses = () => api<Course[]>('/courses').then(setCourses).catch((e) => setErr(e.message))
+  useEffect(() => { loadCourses() }, [])
 
   async function onUpload(files: FileList | null, into: Target | null = null) {
     if (!files?.length) return
@@ -81,9 +84,17 @@ export function Home() {
                   <a className="q" href={`#/v/${v.id}/materials`}>{c.code}</a>
                   <small>Uploaded {fmtDate(v.created_at)} · {v.id}</small>
                   {i === 0 && <button className="btn add" disabled={busy || !!up} onClick={() => startAdd(c)}>Add files</button>}
+                  {i === 0 && <button className="btn sm danger" disabled={busy || !!up} onClick={() => setDeleting(c)}>Delete course</button>}
                 </li>
               )))}
             </ul>
+            {deleting && (
+              <ConfirmDialog title={`Delete ${deleting.code}?`} action="Delete course" typeToConfirm={deleting.code} onClose={() => setDeleting(null)}
+                onConfirm={() => api(`/courses/${deleting.code}`, { method: 'DELETE' }).then(loadCourses)}>
+                This deletes {deleting.code} and {deleting.versions.length === 1 ? 'its version' : `all ${deleting.versions.length} of its versions`}: the files
+                and page text, course map, assessments and test-drive results. It can't be undone.
+              </ConfirmDialog>
+            )}
             <input ref={addInput} type="file" multiple accept=".pdf,.pptx,.docx,.ppt,.doc" hidden aria-label="Files to add" />
           </section>
         )}

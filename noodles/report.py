@@ -95,6 +95,7 @@ def summary(questions: list[dict], coverage: dict) -> dict:
         + ([{"key": "confirm_assumptions", "questions": sorted({q for q, _ in unreviewed}, key=order.index)}] if unreviewed else []),
         "matrix": {cell: [q["question_id"] for q in done if q["exposure"] == cell]
                    for cell in ("ai_exposed", "course_specific", "neither_taught", "broken_or_gap")},
+        "outdated": [q["question_id"] for q in done if q["outdated"]],  # results from before files were added
         "coverage": {"weeks": coverage["weeks"],
                      "assessments": [{"assessment_id": a, "week_cutoff": w} for a, w in coverage["assessments"]],
                      "topics": [{"concept_id": t["concept_id"], "name": t["name"], "first_week": t["first_week"],

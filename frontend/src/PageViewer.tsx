@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { api, pageImg, pdfHref } from './api'
+import { Tex } from './Tex'
 
 export type Page = { passage_id: string; page: number; text: string; origin: 'parser' | 'vlm' }
 type File = { slug: string; filename: string; pages: Page[] }
@@ -58,7 +59,7 @@ export function PageViewer({ vid, slug, page: n, onSaved, onClose }: { vid: stri
         ) : draft === null ? (
           <div className="viewer-text">
             <span className="src">{page.origin === 'vlm' ? 'Transcribed from the page image by the VLM' : 'Text from the PDF'}{saved && <span className="v ok pop">Saved</span>}<button className="btn" onClick={() => { setSaved(false); setDraft(page.text) }}>Edit</button></span>
-            {page.text || <span className="muted">No text on this page.</span>}
+            {page.text ? <Tex>{page.text}</Tex> : <span className="muted">No text on this page.</span>}
           </div>
         ) : (
           <div className="viewer-text editing">

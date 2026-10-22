@@ -41,7 +41,7 @@ def assess(client, vid, cutoff=2, questions=QUESTIONS):
     assert wait_run(client, r.json()["run_id"])["status"] == "done"
     qs = next(a for a in client.get(f"/versions/{vid}/assessments").json())["questions"]
     r = client.put(f"/versions/{vid}/assessments/quiz/questions", json={"questions": [
-        {k: q[k] for k in ("question_id", "text", "options", "type", "marking_material")} for q in qs]})
+        {k: q[k] for k in ("question_id", "context", "text", "options", "type", "marking_material")} for q in qs]})
     assert r.status_code == 200, r.text
 
 
@@ -216,3 +216,39 @@ def test_citation_outside_week_limit_not_resolved(client, target):
     fake(client).handlers["StudentAnswer"] = lambda m, t: answer([("Recursion calls itself.", "course", ["CS2030-w3-week3-p1"])])
     assert drive(client, target)["status"] == "done"
     assert review(client, target)["quiz-q1"]["answer"]["steps"][0]["evidence"] == [{"passage_id": "CS2030-w3-week3-p1"}]
+
+
+def test_question_context_reaches_student_and_web_agent(client):
+    vid = course(client, "CS2030", PAGES)
+    assess(client, vid, questions=[{**QUESTIONS[0], "context": "A loop runs over the list [3, 1, 2]."}])
+    r = drive(client, vid)
+    assert r["status"] == "done", r["error"]
+    m, _ = student_calls(client)[0]  # the first call; a re-check may continue it
+    assert m[1]["content"].startswith("A loop runs over the list [3, 1, 2].\n\nWhat does a loop do?")
+    web = [m for s, _, m, _ in fake(client).calls if s == "WebAnswer"]
+    assert web and "A loop runs over the list" in web[0][-1]["content"]
+
+
+def rerun(client, vid, qids):
+    r = client.post(f"/versions/{vid}/test-drives", json={"prerequisite": None, "questions": qids})
+    assert r.status_code == 200, r.text
+    return wait_run(client, r.json()["run_id"])
+
+
+def test_per_question_rerun_replaces_only_that_question(client, target):
+    first = drive(client, target)["run_id"]
+    assert client.put(f"/runs/{first}/overrides/quiz-q2/web", json={"verdict": "incorrect"}).status_code == 200
+    second = rerun(client, target, ["quiz-q1"])["run_id"]  # unchanged inputs: the same answer, from the run log
+    r = review(client, target)
+    assert r["quiz-q1"]["run_id"] == second and r["quiz-q2"]["run_id"] == first
+    assert r["quiz-q2"]["marks"]["web"]["verdict"] == "incorrect"  # its override, from the run that produced it, still applies
+    assert client.post(f"/versions/{target}/test-drives", json={"questions": ["quiz-q3"]}).status_code == 422  # code question
+
+
+def test_results_outdated_per_question_after_adding_files(client, target):
+    drive(client, target)
+    up = client.post("/courses/CS2030/uploads", files=[("files", ("extra.pdf", make_pdf(["Extra notes on loops and their conditions."])))]).json()
+    assert client.post(f"/versions/{target}/files", json={"upload_id": up["upload_id"], "weeks": {"extra.pdf": 2}}).status_code == 200
+    rerun(client, target, ["quiz-q1"])
+    r = review(client, target)
+    assert not r["quiz-q1"]["outdated"] and r["quiz-q2"]["outdated"]

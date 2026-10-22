@@ -119,3 +119,37 @@ def test_identical_reupload_keeps_confirmed_questions(client, version, split):
     assert len(assessment(client, version, aid)["questions"]) == 1
     add(client, version, paper=PAPER[:2])
     assert assessment(client, version, aid)["state"] == "draft"
+
+
+BLANKS = ["You observe advertising spend x and sales y for ten weeks.\nS_x = ________ (2 points)\nS_y = ________ (2 points)"]
+CTX = "You observe advertising spend x and sales y for ten weeks."
+
+
+def blanks_split(labels):
+    return {"questions": [{"question_id": l, "context": CTX, "text": t, "options": None, "type": "numeric", "marking_material": m}
+                          for l, t, m in zip(labels, ["S_x = ________ (2 points)", "S_y = ________ (2 points)"], ["55", "75"])],
+            "unmatched_marking_material": []}
+
+
+@pytest.mark.parametrize("labels,ids", [((None, None), ["q1", "q2"]), (("S_x", "S_y"), ["q1", "q2"]), (("1a", "Question 1(b)"), ["q1a", "q1b"])])
+def test_question_numbered_by_position_unless_paper_prints_a_number(client, version, labels, ids):
+    client.app.state.openai.handlers["QuestionSplit"] = lambda m: blanks_split(labels)
+    a = assessment(client, version, add(client, version, name="Quiz", paper=BLANKS, answers=None))
+    assert [q["question_id"] for q in a["questions"]] == [f"quiz-{i}" for i in ids]
+
+
+def test_context_kept_per_question_and_checked_against_the_paper(client, version):
+    client.app.state.openai.handlers["QuestionSplit"] = lambda m: blanks_split((None, None))
+    a = assessment(client, version, add(client, version, name="Quiz", paper=BLANKS, answers=None))
+    assert [q["context"] for q in a["questions"]] == [CTX, CTX]
+    assert not any("not found" in f for q in a["questions"] for f in q["flags"])
+    bad = blanks_split((None, None))
+    bad["questions"][0]["context"] = "Data that is not on the paper."
+    client.app.state.openai.handlers["QuestionSplit"] = lambda m: bad
+    paper2 = [BLANKS[0] + "\nShow your working."]  # a different paper, so the split isn't reused from the run log
+    a = assessment(client, version, add(client, version, name="Quiz 2", paper=paper2, answers=None))
+    assert "Context not found in the paper" in a["questions"][0]["flags"]
+    r = client.put(f"/versions/{version}/assessments/quiz-2/questions", json={"questions": [
+        {k: q[k] for k in ("question_id", "context", "text", "options", "type", "marking_material")} for q in a["questions"]]})
+    assert r.status_code == 200, r.text
+    assert assessment(client, version, "quiz-2")["questions"][0]["context"] == "Data that is not on the paper."

@@ -75,9 +75,9 @@ def test_unconfirmed_week_refused(client, vid):
 
 def test_map_outdated_until_rebuilt_and_confirmed(client):
     vid = course(client, "CS1010", {1: "Variables store values that a program can read."})
-    assert client.get(f"/versions/{vid}").json()["outdated"] == {"map": False, "map_confirmed": True, "results": False}
+    assert client.get(f"/versions/{vid}").json()["outdated"] == {"map": False, "map_confirmed": True}
     add(client, vid, [("week2.pdf", P2)], {"week2.pdf": 2})
-    assert client.get(f"/versions/{vid}").json()["outdated"] == {"map": True, "map_confirmed": False, "results": False}
+    assert client.get(f"/versions/{vid}").json()["outdated"] == {"map": True, "map_confirmed": False}
     wait_run(client, client.post(f"/versions/{vid}/map-runs").json()["run_id"])
     assert client.get(f"/versions/{vid}").json()["outdated"]["map"] is False
     concepts = client.get(f"/versions/{vid}/map").json()["concepts"]
@@ -90,9 +90,10 @@ def test_results_outdated_until_test_drive_reruns(client):
     assess(client, vid)
     drive(client, vid)
     add(client, vid, [("extra.pdf", make_pdf(["Extra notes on loops."]))], {"extra.pdf": 2})
-    assert client.get(f"/versions/{vid}").json()["outdated"]["results"] is True
+    summary = lambda: client.get(f"/versions/{vid}/summary").json()["outdated"]
+    assert summary() == ["quiz-q1", "quiz-q2"]
     drive(client, vid)
-    assert client.get(f"/versions/{vid}").json()["outdated"]["results"] is False
+    assert summary() == []
 
 
 def test_map_rebuild_after_adding_reuses_this_versions_topic_ids(client, vid):
@@ -104,3 +105,44 @@ def test_map_rebuild_after_adding_reuses_this_versions_topic_ids(client, vid):
     assert run["status"] == "done"
     calls = [m for s, _, m, _ in client.app.state.openai.calls if s == "MergedMap"]
     assert "CS1010:variables" in calls[-1][-1]["content"]  # the merge sees this version's confirmed topics
+
+
+def test_deleting_a_file_changes_the_version_in_place(client, vid):
+    add(client, vid, [("Lecture2.pdf", P2)], {"Lecture2.pdf": 2})
+    concept = {"concept_id": "CS1010:loops", "name": "Loops", "aliases": [], "description": "",
+               "occurrences": [{"week": 2, "depth": "explained", "evidence": ["CS1010-w2-lecture2-p1"]}]}
+    assert client.put(f"/versions/{vid}/map", json={"concepts": [concept]}).status_code == 200
+    assert client.delete(f"/versions/{vid}/files/lecture2").status_code == 200
+    assert "CS1010-w2-lecture2-p1" not in pages(client, vid)
+    assert client.get(f"/versions/{vid}/map").json()["concepts"][0]["occurrences"][0]["evidence"] == []
+    v = client.get(f"/versions/{vid}").json()
+    assert v["removed_files"] == [{"filename": "Lecture2.pdf", "week": 2}] and v["outdated"]["map"] is True
+    assert ingest(client, "CS1010", [("Lecture1.pdf", P1)], {"Lecture1.pdf": 1}) == vid  # back to Lecture1 alone
+    assert client.delete(f"/versions/{vid}/files/lecture1").status_code == 409  # the last file stays
+
+
+def test_deleting_an_assessment(client):
+    vid = course(client, "CS2030", {1: "Variables store values.", 2: "Loops repeat a block of code."})
+    assess(client, vid)
+    drive(client, vid)
+    assert client.delete(f"/versions/{vid}/assessments/quiz").status_code == 200
+    assert client.get(f"/versions/{vid}/assessments").json() == []
+    assert client.get(f"/versions/{vid}/review").json()["questions"] == []
+    assert client.delete(f"/versions/{vid}/assessments/quiz").status_code == 404
+
+
+def test_deleting_a_course_removes_its_versions_files_and_runs(client, tmp_path):
+    vid = course(client, "CS2030", {1: "Variables store values.", 2: "Loops repeat a block of code."})
+    other = course(client, "CS1010", {1: "Binary numbers use the digits zero and one."})
+    assess(client, vid)
+    drive(client, vid)
+    assert (tmp_path / "runs" / "CS2030").exists()
+    assert client.delete("/courses/CS2030").status_code == 200
+    assert [c["code"] for c in client.get("/courses").json()] == ["CS1010"]
+    assert client.get(f"/versions/{vid}").status_code == 404
+    assert not (tmp_path / "runs" / "CS2030").exists() and not (tmp_path / "data" / "files" / vid).exists()
+    assert client.get(f"/versions/{other}/files").json()["files"]  # the other course is untouched
+    from noodles import db
+    conn = db.connect(client.app_db)
+    assert conn.execute("SELECT count(*) FROM passages_fts WHERE passages_fts MATCH 'variables'").fetchone()[0] == 0
+    assert client.delete("/courses/CS2030").status_code == 404

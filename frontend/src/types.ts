@@ -9,7 +9,7 @@ export type RunStatus = {
 }
 export type QType = 'mcq' | 'true_false' | 'short' | 'numeric' | 'open' | 'code'
 export const QTYPES: QType[] = ['mcq', 'true_false', 'short', 'numeric', 'open', 'code']
-export type Question = { question_id: string; text: string; options: string[] | null; type: QType; marking_material: string | null; flags?: string[] }
+export type Question = { question_id: string; context: string | null; text: string; options: string[] | null; type: QType; marking_material: string | null; flags?: string[] }
 export type Assessment = {
   assessment_id: string; week_cutoff: number; current_format: string; files: Record<string, string>
   state: 'none' | 'running' | 'failed' | 'interrupted' | 'draft' | 'confirmed'; run: RunStatus | null
@@ -28,6 +28,7 @@ export type ReviewQuestion = {
   exposure: 'ai_exposed' | 'course_specific' | 'neither_taught' | 'broken_or_gap' | 'not_assessed' | null
   recommendation: { key: string; group: string; title: string; text: string; facts: string } | null
   only_mentioned: (Cited & { concept_id: string; name: string; question_id: string; week_cutoff: number })[]
+  context: string | null; run_id: string | null; answered_at: string | null; outdated: boolean
 }
 export type Verdict = 'correct' | 'partial' | 'incorrect'
 export type Mark = { verdict: Verdict; reason: string; by: 'code' | 'marker'; overridden?: Verdict }
@@ -37,6 +38,7 @@ export type Summary = {
   figures: { gaps: number; ai_exposed: number; assumptions: number; never_assessed: number }
   actions: { key: string; questions: string[] }[]
   matrix: Record<'ai_exposed' | 'course_specific' | 'neither_taught' | 'broken_or_gap', string[]>
+  outdated: string[]; prerequisite: string | null
   coverage: { weeks: number[]; assessments: { assessment_id: string; week_cutoff: number }[]
     topics: { concept_id: string; name: string; first_week: number | null; assessed: boolean }[] }
 }

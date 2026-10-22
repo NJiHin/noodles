@@ -2,7 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { api, post } from '../api'
 import { PageLink } from '../PageViewer'
 import { RunProgress } from '../RunProgress'
-import { AddedNotice, VersionShell, fmtDate } from '../Shell'
+import { Tex } from '../Tex'
+import { AddedNotice, RerunIcon, VersionShell, fmtDate } from '../Shell'
 import { FORMAT_LABEL, type Changes, type Mark, type ReviewQuestion, type ReviewResp, type Step, type Verdict } from '../types'
 
 type Course = { code: string; versions: { map_reviewed_at: string | null }[] }
@@ -33,9 +34,10 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
       && c.versions.some((v) => v.map_reviewed_at)).map((c) => c.code)))
   }, [r?.course_code]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function start() {
+  /** Every confirmed question, or only `questions` (a per-question rerun). */
+  async function start(questions?: string[]) {
     setErr('')
-    try { await post(`/versions/${vid}/test-drives`, { prerequisite: prereq || null }); await load() } catch (e) { setErr((e as Error).message) }
+    try { await post(`/versions/${vid}/test-drives`, { prerequisite: prereq || null, questions }); await load() } catch (e) { setErr((e as Error).message) }
   }
 
   const qs = r?.questions ?? []
@@ -60,7 +62,7 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
                   <option value="">None</option>
                   {prereqs.map((c) => <option key={c}>{c}</option>)}
                 </select></label>
-                <button className="btn primary" onClick={start}>{r?.run ? 'Rerun test-drive' : 'Start test-drive'}</button>
+                <button className="btn primary" onClick={() => start()}>{r?.run ? 'Rerun test-drive' : 'Start test-drive'}</button>
               </div>
             )}
             {(err || r?.run?.error) && <p className="err">{err || r?.run?.error}</p>}
@@ -70,27 +72,30 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
               <div className="group"><span>{name}</span><span>{g.length}</span></div>
               {g.map(([q, text], i) => (
                 <a key={`${q.question_id}-${i}`} className={`item${q === sel ? ' on' : ''}${q.type === 'code' || q.recommendation?.group === 'Keep as is' ? ' done' : ''}`} href={`#/v/${vid}/review/${q.question_id}`}>
-                  <span className="id" title={short(q)}>{short(q)}</span><span className="t">{text}</span><span className="wk">{q.assessment_id}{chg[q.question_id] && <span className="chg" title="Since the last run of the previous version">{chg[q.question_id]}</span>}</span>
+                  <span className="id" title={short(q)}>{short(q)}</span><span className="t"><Tex>{text}</Tex></span><span className="wk">{q.assessment_id}{chg[q.question_id] && <span className="chg" title="Since the last run of the previous version">{chg[q.question_id]}</span>}</span>
                 </a>
               ))}
             </div>
           ))}
         </section>
-        <main className="detail">{sel ? <Detail q={sel} prereq={r?.prerequisite ?? null} runId={r?.run?.run_id ?? ''} course={r?.course_code ?? ''} reload={load}
-          notice={<AddedNotice key={r?.run?.run_id} vid={vid} screen="results" />} /> : <p className="muted">Confirm an assessment's questions, then start a test-drive.</p>}</main>
+        <main className="detail">{sel ? <Detail q={sel} prereq={r?.prerequisite ?? null} course={r?.course_code ?? ''} reload={load}
+          rerun={running ? undefined : () => start([sel.question_id])}
+          notice={<AddedNotice key={r?.run?.run_id} vid={vid} screen="results" results={{ outdated: sel.outdated ? 1 : 0, total: 1, rerun: () => start([sel.question_id]) }} />} /> : <p className="muted">Confirm an assessment's questions, then start a test-drive.</p>}</main>
       </div>
     </VersionShell>
   )
 }
 
-function Detail({ q, prereq, runId, course, reload, notice }: { q: ReviewQuestion; prereq: string | null; runId: string; course: string; reload: () => void; notice: ReactNode }) {
+function Detail({ q, prereq, course, reload, rerun, notice }: { q: ReviewQuestion; prereq: string | null; course: string; reload: () => void; rerun?: () => void; notice: ReactNode }) {
+  const runId = q.run_id ?? ''  // the run that gave this question's result; overrides belong to it
   const a = q.answer
   return (
     <>
       <div>
         <div className="meta">{q.assessment_id}, question {short(q)}. Covers weeks 1 to {q.week_cutoff}, {FORMAT_LABEL[q.current_format]}.</div>
-        <h2 className="qtitle">{q.text}</h2>
-        {q.options && <ol className="opts">{q.options.map((o, i) => <li key={i}>({String.fromCharCode(65 + i)}) {o}</li>)}</ol>}
+        {q.context && <p className="qctx"><Tex>{q.context}</Tex></p>}
+        <h2 className="qtitle"><Tex>{q.text}</Tex></h2>
+        {q.options && <ol className="opts">{q.options.map((o, i) => <li key={i}>({String.fromCharCode(65 + i)}) <Tex>{o}</Tex></li>)}</ol>}
       </div>
       {notice}
       {q.only_mentioned.length > 0 && (
@@ -113,7 +118,8 @@ function Detail({ q, prereq, runId, course, reload, notice }: { q: ReviewQuestio
               override={(v) => setVerdict(runId, q.question_id, 'web', v, reload)} />}
           </div>
           <div className="steps">
-            <h2>The student's steps</h2>
+            <div className="steps-h"><h2>The student's steps</h2>
+              <button className="btn rerun" disabled={!rerun} onClick={rerun}><RerunIcon />Rerun this question</button></div>
             {a.steps.length === 0 && <p className="muted">No knowledge steps listed.</p>}
             <ol>{a.steps.map((s, i) => <StepItem key={s.step_id} s={s} n={i + 1} cutoff={q.week_cutoff} prereq={prereq} course={course} reload={reload} />)}</ol>
           </div>
@@ -132,7 +138,7 @@ function StepItem({ s, n, cutoff, prereq, course, reload }: { s: Step; n: number
   return (
     <li className={`s${cls}`}><span className="mark">{n}</span>
       <div className="card">
-        <p className="claim">{s.claim}</p>
+        <p className="claim"><Tex>{s.claim}</Tex></p>
         {s.evidence.map((p) => (
           <div className="passage" key={p.passage_id}>
             {p.slug && p.version_id && p.page
@@ -173,9 +179,9 @@ function AnswerCard({ title, answer, mark, gap, sources, override }: {
   return (
     <div className="ans">
       <h3>{title} <span>{gap && <span className="v bad">Gap</span>} {mark && <span className={`v ${VERDICT_CLASS[mark.verdict]}`}>{cap(mark.verdict)}</span>}</span></h3>
-      <p className="a">{answer ?? <span className="muted">No answer: couldn't attempt it.</span>}</p>
+      <p className="a">{answer !== null ? <Tex>{answer}</Tex> : <span className="muted">No answer: couldn't attempt it.</span>}</p>
       <p className="src">
-        {mark && <>{mark.by === 'marker' ? 'Marker: ' : ''}{mark.reason}
+        {mark && <>{mark.by === 'marker' ? 'Marker: ' : ''}<Tex>{mark.reason}</Tex>
           {mark.overridden && ` Overridden by you; the marker said ${mark.overridden}.`}
           {open
             ? <select className="ovr-pick" aria-label={`Override ${title}`} autoFocus defaultValue="" onChange={(e) => { setOpen(false); override(e.target.value as Verdict) }}>

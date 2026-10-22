@@ -25,7 +25,7 @@ from noodles.student import test_drive
 from noodles.web import Verdict, exposure
 from noodles.cost import run_cost
 from noodles.report import changes, recommend, summary, topic_coverage
-from noodles.ingest import FingerprintTaken, IngestError, add_files, check_upload_name, guess_week, ingest, page_png, read_document, slugify
+from noodles.ingest import FingerprintTaken, IngestError, LastFile, add_files, remove_file, check_upload_name, guess_week, ingest, page_png, read_document, slugify
 
 ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
@@ -40,6 +40,7 @@ class MapBody(BaseModel):
 
 class TestDriveBody(BaseModel):
     prerequisite: str | None = None  # course code; its latest reviewed version is used
+    questions: list[str] | None = None  # question IDs to rerun; None runs every confirmed question
 
 
 class DecisionBody(BaseModel):
@@ -285,17 +286,22 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
 
     @app.post("/versions/{vid}/test-drives")
     async def start_test_drive(vid: str, body: TestDriveBody):
-        """The student on every confirmed non-code question. Needs a reviewed map and confirmed questions."""
+        """The student on every confirmed non-code question, or only body.questions (a per-question rerun).
+        Needs a reviewed map and confirmed questions."""
         with conn() as c:
             v = version_row(c, vid)
             if not v["map_reviewed_at"]:
                 raise HTTPException(409, "confirm the course map first")
             questions = [{**dict(r), "options": json.loads(r["options"]) if r["options"] else None} for r in c.execute(
-                "SELECT q.question_id, q.text, q.options, q.type, q.marking_material, a.week_cutoff FROM questions q JOIN assessments a ON "
+                "SELECT q.question_id, q.context, q.text, q.options, q.type, q.marking_material, a.week_cutoff FROM questions q JOIN assessments a ON "
                 "a.version_id = q.version_id AND a.assessment_id = q.assessment_id WHERE q.version_id = ? "
                 "AND q.type != 'code' ORDER BY a.week_cutoff, q.rowid", (vid,))]
             if not questions:
                 raise HTTPException(409, "confirm the questions of at least one assessment first")
+            if body.questions is not None:
+                if unknown := set(body.questions) - {q["question_id"] for q in questions}:
+                    raise HTTPException(422, f"not confirmed, or a code question: {', '.join(sorted(unknown))}")
+                questions = [q for q in questions if q["question_id"] in body.questions]
             prereq = None
             if body.prerequisite:
                 p = c.execute("SELECT id FROM versions WHERE course_code = ? AND map_reviewed_at IS NOT NULL "
@@ -314,7 +320,8 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
         r = get_review(vid)
         with conn() as c:
             concepts = load_map(c, vid)
-        return {"course_code": r["course_code"], "run": r["run"], **summary(r["questions"], topic_coverage(concepts, r["questions"]))}
+        return {"course_code": r["course_code"], "run": r["run"], "prerequisite": r["prerequisite"],
+                **summary(r["questions"], topic_coverage(concepts, r["questions"]))}
 
     @app.get("/versions/{vid}/method")
     def get_method(vid: str):
@@ -357,31 +364,40 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
 
     @app.get("/versions/{vid}/review")
     def get_review(vid: str):
-        """Every confirmed question with the latest test-drive's student output; cited passages resolved for links."""
+        """Every confirmed question with its latest result across the version's test-drives (a per-question rerun
+        replaces only its questions); cited passages resolved for links."""
         with conn() as c:
-            code = version_row(c, vid)["course_code"]
+            v = version_row(c, vid)
+            code = v["course_code"]
             path = latest_run(code, vid, "test_drive")
-            recs = read_log(path) if path else []
-            answers = {r["question_id"]: r for r in recs if r["type"] == "answer"}
-            cfg = recs[0] if recs else {}
+            cfg = read_log(path)[0] if path else {}
+            answers, source = {}, {}  # question -> its newest answer, and the config of the run that gave it
+            for p in sorted((runs_dir / code / vid).glob("*.jsonl"), reverse=True):
+                recs = read_log(p)
+                if recs[0]["kind"] == "test_drive":
+                    for r in recs:
+                        if r["type"] == "answer" and r["question_id"] not in answers:
+                            answers[r["question_id"]], source[r["question_id"]] = r, recs[0]
             decisions = {r["id"]: dict(r) for r in c.execute("SELECT * FROM assumed_knowledge WHERE course_code = ?", (code,))}
-            overrides = {(r["question_id"], r["agent"]): r["verdict"] for r in c.execute(
-                "SELECT * FROM verdict_overrides WHERE run_id = ?", (cfg.get("run_id"),))}
+            run_ids = {x["run_id"] for x in source.values()}
+            overrides = {(r["run_id"], r["question_id"], r["agent"]): r["verdict"] for r in c.execute(
+                f"SELECT * FROM verdict_overrides WHERE run_id IN ({','.join('?' * len(run_ids))})", (*run_ids,))}
             cited = {e for a in answers.values() for s in a["steps"] for e in s["evidence"]}
+            prereqs = {x["prerequisite"] for x in source.values()} - {None}
             passages = {r["passage_id"]: dict(r) for r in c.execute(
                 f"SELECT p.passage_id, v.course_code AS course, p.version_id, p.week, f.filename, p.file_slug AS slug, "
                 f"p.page, p.text, p.origin FROM passages p JOIN versions v ON v.id = p.version_id JOIN files f ON "
-                f"f.version_id = p.version_id AND f.slug = p.file_slug WHERE p.version_id IN (?, ?) "
-                f"AND p.passage_id IN ({','.join('?' * len(cited))})", (vid, cfg.get("prerequisite"), *cited))}
+                f"f.version_id = p.version_id AND f.slug = p.file_slug WHERE p.version_id IN ({','.join('?' * (1 + len(prereqs)))}) "
+                f"AND p.passage_id IN ({','.join('?' * len(cited))})", (vid, *prereqs, *cited))}
             questions = []
-            for q in c.execute("SELECT q.question_id, q.assessment_id, q.text, q.options, q.type, a.week_cutoff, "
+            for q in c.execute("SELECT q.question_id, q.assessment_id, q.context, q.text, q.options, q.type, a.week_cutoff, "
                                "a.current_format FROM questions q JOIN assessments a ON a.version_id = q.version_id AND "
                                "a.assessment_id = q.assessment_id WHERE q.version_id = ? ORDER BY a.week_cutoff, "
                                "q.assessment_id, q.rowid", (vid,)):
-                a = answers.get(q["question_id"])
+                a, src = answers.get(q["question_id"]), source.get(q["question_id"], {})
                 def seen(e):  # a cited ID outside the week limit stays visible, unresolved
                     p = passages.get(e)
-                    ok = p and (p["version_id"] == cfg["prerequisite"] or p["week"] <= q["week_cutoff"])
+                    ok = p and (p["version_id"] == src["prerequisite"] or p["week"] <= q["week_cutoff"])
                     return p if ok else {"passage_id": e}
                 if a:
                     g = {x["step_id"]: x for x in a.get("grounding", [])}
@@ -390,14 +406,18 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                                     "assumption": assumption(s, decisions)} for s in a["steps"]]}
                 marks = None
                 if a and a["marks"]:  # the professor's override replaces the verdict; the original is kept
-                    marks = {k: {**m, "verdict": overrides[q["question_id"], k], "overridden": m["verdict"]}
-                             if (q["question_id"], k) in overrides else m for k, m in a["marks"].items()}
+                    key = lambda k: (src["run_id"], q["question_id"], k)
+                    marks = {k: {**m, "verdict": overrides[key(k)], "overridden": m["verdict"]}
+                             if key(k) in overrides else m for k, m in a["marks"].items()}
                 questions.append({**dict(q), "options": json.loads(q["options"]) if q["options"] else None,
                                   "answer": a and {k: v for k, v in a.items() if k not in ("web", "marks")},
                                   "web": a and a["web"], "marks": marks, "exposure": exposure(marks) if a else None,
                                   "gap": bool(a) and any(s["source"] == "none" or (s["grounding"] or {}).get("verdict")
                                                          == "unsupported" or (s["assumption"] or {}).get("state") == "rejected"
-                                                         for s in a["steps"])})
+                                                         for s in a["steps"]),
+                                  # which run gave this result, and whether files were added to the version after it ran
+                                  "run_id": src.get("run_id"), "answered_at": src.get("started_at"),
+                                  "outdated": bool(a and v["materials_changed_at"] and src["started_at"] < v["materials_changed_at"])})
         for q in questions:
             q["recommendation"] = recommend(q) if q["answer"] or q["type"] == "code" else None
         # topics a question relies on that were only mentioned by its cutoff (sys-design Stage 4, assessment review)
@@ -518,6 +538,53 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             reading(body, lambda progress: add_files(c, files_dir, vid, staged, body.weeks, vlm, progress))
         return {"version_id": vid}
 
+    @app.delete("/versions/{vid}/files/{slug}")
+    def delete_file(vid: str, slug: str):
+        """Delete one file from the version in place (sys-design Stage 0, "Deleting")."""
+        with conn() as c:
+            version_row(c, vid)
+            try:
+                remove_file(c, files_dir, vid, safe_id(slug))
+            except KeyError:
+                raise HTTPException(404, "file not found")
+            except (LastFile, FingerprintTaken) as e:
+                raise HTTPException(409, str(e))
+        return {"ok": True}
+
+    @app.delete("/versions/{vid}/assessments/{aid}")
+    def delete_assessment(vid: str, aid: str):
+        """Its files and questions go; earlier test-drive results stay in the run logs, unshown."""
+        with conn() as c, c:
+            if not c.execute("DELETE FROM assessments WHERE version_id = ? AND assessment_id = ?", (vid, aid)).rowcount:
+                raise HTTPException(404, "assessment not found")
+            for table in ("questions", "assessment_files"):
+                c.execute(f"DELETE FROM {table} WHERE version_id = ? AND assessment_id = ?", (vid, aid))
+        return {"ok": True}
+
+    @app.delete("/courses/{code}")
+    def delete_course(code: str):
+        """The course, all its versions with their stored files, and its run logs."""
+        logs = runs_dir / safe_id(code)
+        run_ids = [p.stem for p in logs.glob("*/*.jsonl")]
+        if any(not tasks[r].done() for r in run_ids if r in tasks):
+            raise HTTPException(409, "a run of this course is still going; delete it once the run ends")
+        with conn() as c, c:
+            vids = [r[0] for r in c.execute("SELECT id FROM versions WHERE course_code = ?", (code,))]
+            if not vids:
+                raise HTTPException(404, "course not found")
+            marks = ",".join("?" * len(vids))
+            for table in ("evidence", "occurrences", "concepts", "passages", "files", "questions", "assessment_files", "assessments"):
+                c.execute(f"DELETE FROM {table} WHERE version_id IN ({marks})", vids)
+            c.execute(f"DELETE FROM versions WHERE id IN ({marks})", vids)
+            c.execute(f"DELETE FROM verdict_overrides WHERE run_id IN ({','.join('?' * len(run_ids))})", run_ids)
+            c.execute("DELETE FROM assumed_knowledge WHERE course_code = ?", (code,))
+            c.execute("DELETE FROM courses WHERE code = ?", (code,))
+            c.execute("INSERT INTO passages_fts(passages_fts) VALUES('rebuild')")
+        for vid in vids:
+            shutil.rmtree(files_dir / vid, ignore_errors=True)
+        shutil.rmtree(logs, ignore_errors=True)
+        return {"ok": True}
+
     @app.get("/progress/{key}")
     def reading_progress(key: str):
         """Per file, flagged pages transcribed so far while an upload's files (key: upload_id) or an assessment's
@@ -533,15 +600,10 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                                                 "ORDER BY added_at, filename", (vid,))]
             has_map = v["map_reviewed_at"] or c.execute("SELECT 1 FROM concepts WHERE version_id = ?", (vid,)).fetchone()
         changed = v["materials_changed_at"]
-
-        def before_change(kind):  # the latest run of this kind started before the materials changed
-            path = latest_run(v["course_code"], vid, kind)
-            return bool(changed and path and read_log(path)[0]["started_at"] < changed)
         map_run = latest_run(v["course_code"], vid, "map")
-        return {**v, "added_files": added, "outdated": {
+        return {**v, "added_files": added, "removed_files": json.loads(v["removed_files"] or "[]"), "outdated": {
             "map": bool(changed and has_map and not (map_run and read_log(map_run)[0]["started_at"] > changed)),
-            "map_confirmed": bool(v["map_reviewed_at"] and (not changed or v["map_reviewed_at"] > changed)),
-            "results": before_change("test_drive")}}
+            "map_confirmed": bool(v["map_reviewed_at"] and (not changed or v["map_reviewed_at"] > changed))}}
 
     @app.get("/versions/{vid}/files")
     def version_files(vid: str):
