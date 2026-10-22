@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { api } from '../api'
 import { AddedNotice, VersionShell, fmtDate } from '../Shell'
-import { FORMAT_LABEL, type Summary as S } from '../types'
+import type { Summary as S } from '../types'
 
 /** 'week-4-quiz-q1b' -> ['Q1B', 'week-4-quiz'] */
 const split = (id: string) => { const i = id.lastIndexOf('-q'); return [id.slice(i + 1).toUpperCase(), id.slice(0, i)] }
@@ -20,7 +20,7 @@ const CELLS: [keyof S['matrix'], string, string, string][] = [
   ['broken_or_gap', 'bad', 'Broken question, or a gap', 'Neither agent answers it'],
 ]
 
-/** c1-summary: verdict, key figures, top actions, exposure grid, one bar per assessment. */
+/** c1-summary: verdict, key figures, top actions, exposure grid, and what the assessments cover across the semester. */
 export function Summary({ vid }: { vid: string }) {
   const [s, setS] = useState<S | null>(null)
   const [err, setErr] = useState('')
@@ -45,6 +45,7 @@ export function Summary({ vid }: { vid: string }) {
               <div><b>{s.figures.gaps}</b>coverage gaps</div>
               <div><b>{s.figures.ai_exposed}</b>AI-exposed</div>
               <div><b>{s.figures.assumptions}</b>assumptions to confirm</div>
+              <div><b>{s.figures.never_assessed}</b>topic{s.figures.never_assessed === 1 ? '' : 's'} never assessed</div>
             </div>
           </div>
           <AddedNotice key={s.run?.run_id} vid={vid} screen="results" />
@@ -87,25 +88,63 @@ export function Summary({ vid }: { vid: string }) {
             </section>
           </div>
 
-          <section className="panel">
-            <h2>By assessment</h2>
-            <p className="hint">One segment per question, in paper order.</p>
-            <div className="comps">
-              {s.assessments.map((a) => {
-                const notes = Object.entries(a.groups).filter(([k]) => k !== 'Keep as is').map(([k, n]) => `${n} ${k.toLowerCase()}`)
-                return (
-                  <div className="comp" key={a.assessment_id}>
-                    <div><b>{a.assessment_id}</b><small>Week {a.week_cutoff}, {FORMAT_LABEL[a.current_format]}</small></div>
-                    <div className="bar">{a.segments.map((x, i) => <span key={i} className={x} />)}</div>
-                    <div className="note">{notes.join(', ') || 'All can stay as they are'}</div>
-                  </div>
-                )
-              })}
-            </div>
-            <div className="legend"><span>Depends on the course</span><span className="ai">AI-exposed</span><span className="gap">Coverage gap</span><span className="other">Review or not assessed</span></div>
-          </section>
+          <Coverage c={s.coverage} />
         </>}
       </main>
     </VersionShell>
+  )
+}
+
+/** Topics introduced each week, assessed by any question or never; dotted lines where each assessment's weeks end. */
+function Coverage({ c }: { c: S['coverage'] }) {
+  const n = c.weeks.length
+  const by = (w: number) => c.topics.filter((t) => t.first_week === w)
+  const top = Math.max(1, ...c.weeks.map((w) => by(w).length))
+  const cutoffs = [...new Set(c.assessments.map((a) => a.week_cutoff))].sort((a, b) => a - b)
+  // the untested topics in the stretch of weeks before each test
+  const spans = cutoffs.map((cut, i) => {
+    const from = (cutoffs[i - 1] ?? 0) + 1
+    const ts = c.topics.filter((t) => t.first_week !== null && t.first_week >= from && t.first_week <= cut)
+    return { from, cut, names: c.assessments.filter((a) => a.week_cutoff === cut).map((a) => a.assessment_id).join(', '),
+      total: ts.length, never: ts.filter((t) => !t.assessed) }
+  })
+  const [open, setOpen] = useState<number | null>(null)
+  return (
+    <section className="panel">
+      <div className="cov-head">
+        <div><h2>What the assessments cover</h2><p className="hint">Topics introduced each week, and whether any question tests them.</p></div>
+        <div className="cov-key"><span><i className="yes" />assessed</span><span><i className="no" />never assessed</span><span><i className="dl" />last week an assessment covers</span></div>
+      </div>
+      <div className="cov-chart" style={{ '--n': n } as React.CSSProperties}>
+        <div className="cov-cols">
+          {c.weeks.map((w) => {
+            const ts = by(w), yes = ts.filter((t) => t.assessed).length
+            return (
+              <div key={w} className="cov-col" title={`Week ${w}: ${yes} of ${ts.length} assessed`}>
+                {yes > 0 && <i className="yes" style={{ height: `${(yes / top) * 150}px` }} />}
+                {ts.length > yes && <i className="no" style={{ height: `${((ts.length - yes) / top) * 150}px` }} />}
+                <span>{ts.length}</span>
+              </div>
+            )
+          })}
+        </div>
+        {cutoffs.filter((w) => w <= n).map((w) => (
+          <div key={w} className={`cov-test${w === n ? ' end' : ''}`} style={{ left: w === n ? '100%' : `calc(${w} * (100% + 10px) / ${n} - 5px)` }}>
+            <span>{c.assessments.filter((a) => a.week_cutoff === w).map((a) => a.assessment_id).join(', ')}</span>
+          </div>
+        ))}
+        <div className="cov-x">{c.weeks.map((w) => <span key={w}>W{w}</span>)}</div>
+      </div>
+      <div className="cov-per">
+        {spans.map((p, i) => (
+          <div key={p.cut}>
+            <div><b>Weeks {p.from} to {p.cut}</b><small>before {p.names}</small></div>
+            <span className="names"><b>{p.never.length} of {p.total}</b> never assessed{p.never.length > 0 && ': '}
+              {(open === i ? p.never : p.never.slice(0, 4)).map((t) => t.name).join(', ')}{open !== i && p.never.length > 4 && ` and ${p.never.length - 4} more`}</span>
+            {p.never.length > 4 && <button className="link" onClick={() => setOpen(open === i ? null : i)}>{open === i ? 'Show fewer' : 'Show all'}</button>}
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }

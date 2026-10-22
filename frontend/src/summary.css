@@ -26,18 +26,26 @@
 .summary .cell.exposed { background: var(--warn-t); } .summary .cell.exposed h3 { color: var(--warn); }
 .summary .cell.good { background: var(--ok-t); } .summary .cell.good h3 { color: var(--ok); }
 .summary .cell.bad { background: var(--bad-t); } .summary .cell.bad h3 { color: var(--bad); }
-.summary .comps { margin-top: 14px; display: grid; gap: 2px; }
-.summary .comp { display: grid; grid-template-columns: 200px 1fr 220px; gap: 20px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
-.summary .comp b { font-weight: 600; display: block; }
-.summary .comp small { color: var(--ink-3); font-size: 12.5px; }
-.summary .bar { display: flex; gap: 3px; height: 10px; }
-.summary .bar span { flex: 1; border-radius: 3px; background: var(--ok); }
-.summary .bar .ai { background: var(--warn); }
-.summary .bar .gap { background: var(--bad); }
-.summary .bar .other { background: var(--line); }
-.summary .comp .note { font-size: 13px; color: var(--ink-2); }
-.summary .legend { display: flex; gap: 18px; margin-top: 12px; font-size: 12.5px; color: var(--ink-2); }
-.summary .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--ok); }
-.summary .legend .ai::before { background: var(--warn); }
-.summary .legend .gap::before { background: var(--bad); }
-.summary .legend .other::before { background: var(--line); }
+
+/* what the assessments cover: bars per week, dotted lines at each assessment's last week */
+.summary .cov-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.summary .cov-key { display: flex; gap: 14px; font-size: 12.5px; color: var(--ink-2); flex: none; }
+.summary .cov-key span { display: inline-flex; gap: 6px; align-items: center; }
+.summary .cov-key i { width: 12px; height: 12px; border-radius: 3px; }
+.summary .cov-key i.dl { width: 0; border-left: 1.5px dashed var(--ink-2); border-radius: 0; }
+.summary .yes { background: var(--accent); } .summary .no { background: #D5D9E0; }
+.summary .cov-chart { position: relative; margin-top: 30px; }
+.summary .cov-cols { display: grid; grid-template-columns: repeat(var(--n), 1fr); column-gap: 10px; border-bottom: 1px solid var(--line); }
+.summary .cov-col { display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; height: 172px; }
+.summary .cov-col i { display: block; width: 100%; max-width: 72px; }
+.summary .cov-col i:last-of-type { border-radius: 4px 4px 0 0; }
+.summary .cov-col span { text-align: center; font-size: 12px; color: var(--ink-2); margin-bottom: 4px; }
+.summary .cov-x { display: grid; grid-template-columns: repeat(var(--n), 1fr); column-gap: 10px; font-size: 12px; color: var(--ink-3); text-align: center; padding-top: 6px; }
+.summary .cov-test { position: absolute; top: -6px; bottom: 22px; border-left: 1.5px dashed var(--ink-2); }
+.summary .cov-test span { position: absolute; top: -16px; left: 0; transform: translateX(-50%); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.summary .cov-test.end span { transform: translateX(-100%); }
+.summary .cov-per { margin-top: 18px; }
+.summary .cov-per > div { display: grid; grid-template-columns: 200px 1fr auto; gap: 16px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.summary .cov-per b { font-weight: 600; } .summary .cov-per small { display: block; color: var(--ink-3); font-size: 12.5px; }
+.summary .cov-per .names { color: var(--ink-2); }
+.summary .cov-per .link { border: 0; background: none; padding: 0; font: 13px var(--sans); color: var(--accent); cursor: pointer; }

@@ -29,7 +29,7 @@ export function Changes({ vid }: { vid: string }) {
   const [err, setErr] = useState('')
   useEffect(() => { api<C>(`/versions/${vid}/changes`).then(setC).catch((e) => setErr(e.message)) }, [vid])
   const jump = (id: string) => (e: React.MouseEvent) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' }) }
-  const lp = `#/v/${vid}/learning-path`  // changed cells are marked there
+  const map = `#/v/${vid}/map`
   const n = c?.counts
   const m = c?.map
 
@@ -75,10 +75,10 @@ export function Changes({ vid }: { vid: string }) {
               <h2>Course map</h2>
               <p className="hint">Depth changes per week{n.topics ? '' : '. No topics were added or removed'}.</p>
               <div className="files">
-                {m.added.map((t) => <div className="file" key={`a${t.concept_id}`}><a className="q" href={lp}>{t.name}</a><span className="wk">Topic</span><div className="shift"><span className="old">Not in the map</span><i>to</i><span>Added</span></div></div>)}
+                {m.added.map((t) => <div className="file" key={`a${t.concept_id}`}><a className="q" href={map}>{t.name}</a><span className="wk">Topic</span><div className="shift"><span className="old">Not in the map</span><i>to</i><span>Added</span></div></div>)}
                 {m.removed.map((t) => <div className="file" key={`r${t.concept_id}`}><span>{t.name}</span><span className="wk">Topic</span><div className="shift"><span className="old">In the map</span><i>to</i><span>Removed</span></div></div>)}
                 {m.depth.map((d) => (
-                  <div className="file" key={`${d.concept_id}-${d.week}`}><a className="q" href={lp}>{d.name}</a><span className="wk">Week {d.week}</span>
+                  <div className="file" key={`${d.concept_id}-${d.week}`}><a className="q" href={map}>{d.name}</a><span className="wk">Week {d.week}</span>
                     <div className="shift"><span className="old">{depth(d.before)}</span><i>to</i><span>{depth(d.after)}</span></div></div>
                 ))}
                 {m.depth.length + m.added.length + m.removed.length === 0 && <p className="muted">No change in the course map.</p>}

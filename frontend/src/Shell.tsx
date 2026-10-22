@@ -31,7 +31,6 @@ export function versionNav(vid: string, on: string): Nav[] {
     { label: 'Assessments', href: `#/v/${vid}/assessments` },
     { label: 'Summary', href: `#/v/${vid}/summary` },
     { label: 'Assessment review', href: `#/v/${vid}/review` },
-    { label: 'Learning path', href: `#/v/${vid}/learning-path` },
     { label: 'Changes since last run', href: `#/v/${vid}/changes` },
     { label: 'Method and limitations', href: `#/v/${vid}/method` },
   ].map((n) => ({ ...n, on: n.label === on }))

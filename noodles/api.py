@@ -24,7 +24,7 @@ from noodles.ollama import Ollama, OllamaError
 from noodles.student import test_drive
 from noodles.web import Verdict, exposure
 from noodles.cost import run_cost
-from noodles.report import changes, learning_path, recommend, summary
+from noodles.report import changes, recommend, summary, topic_coverage
 from noodles.ingest import FingerprintTaken, IngestError, add_files, check_upload_name, guess_week, ingest, page_png, read_document, slugify
 
 ID = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -308,7 +308,9 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
     @app.get("/versions/{vid}/summary")
     def get_summary(vid: str):
         r = get_review(vid)
-        return {"course_code": r["course_code"], "run": r["run"], **summary(r["questions"])}
+        with conn() as c:
+            concepts = load_map(c, vid)
+        return {"course_code": r["course_code"], "run": r["run"], **summary(r["questions"], topic_coverage(concepts, r["questions"]))}
 
     @app.get("/versions/{vid}/method")
     def get_method(vid: str):
@@ -348,15 +350,6 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
         return {"course_code": v["course_code"], "run": cur["run"],
                 "previous": {"version_id": prev, "created_at": prev_row["created_at"], "run": old["run"]},
                 **changes(cur["questions"], old["questions"], maps[vid], maps[prev])}
-
-    @app.get("/versions/{vid}/learning-path")
-    def get_learning_path(vid: str):
-        r = get_review(vid)
-        with conn() as c:
-            concepts = load_map(c, vid)
-        lp = learning_path(concepts, r["questions"])
-        return {"course_code": r["course_code"], "run": r["run"], **lp,
-                "assessments": [{"assessment_id": a, "week_cutoff": w} for a, w in lp["assessments"]]}
 
     @app.get("/versions/{vid}/review")
     def get_review(vid: str):
@@ -403,6 +396,15 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                                                          for s in a["steps"])})
         for q in questions:
             q["recommendation"] = recommend(q) if q["answer"] or q["type"] == "code" else None
+        # topics a question relies on that were only mentioned by its cutoff (sys-design Stage 4, assessment review)
+        with conn() as c:
+            concepts = load_map(c, vid)
+        thin: dict[str, list[dict]] = {}
+        for t in topic_coverage(concepts, questions)["topics"]:
+            for m in t["mentioned"]:
+                thin.setdefault(m["question_id"], []).append({"concept_id": t["concept_id"], "name": t["name"], **m})
+        for q in questions:
+            q["only_mentioned"] = thin.get(q["question_id"], [])
         return {"course_code": code, "run": run_status(path) if path else None,
                 "prerequisite": cfg.get("prerequisite_course"), "questions": questions}
 

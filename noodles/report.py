@@ -74,8 +74,9 @@ def recommend(q: dict) -> dict:
     return {"key": key, "group": group, "title": title, "text": text, "facts": " ".join(facts)}
 
 
-def summary(questions: list[dict]) -> dict:
-    """Key figures, top actions, exposure grid and per-assessment bars from the review's questions."""
+def summary(questions: list[dict], coverage: dict) -> dict:
+    """Key figures, top actions and exposure grid from the review's questions, and which topics the assessments cover
+    across the semester (coverage: topic_coverage's result)."""
     done = [q for q in questions if q["answer"] and q["type"] != "code"]
     by_key = lambda keys: [q["question_id"] for q in done if q["recommendation"]["key"] in keys
                            and q["recommendation"]["group"] != "Keep as is"]
@@ -86,30 +87,26 @@ def summary(questions: list[dict]) -> dict:
     unreviewed = [(q["question_id"], s["step_id"]) for q in done for s in q["answer"]["steps"]
                   if (s.get("assumption") or {}).get("state") == "unreviewed"]
     order = [q["question_id"] for q in done]
-    assessments: dict[str, dict] = {}
-    for q in done:
-        a = assessments.setdefault(q["assessment_id"], {"assessment_id": q["assessment_id"], "week_cutoff": q["week_cutoff"],
-                                                       "current_format": q["current_format"], "segments": [], "groups": {}})
-        a["segments"].append("gap" if q["gap"] else {"ai_exposed": "ai", "course_specific": "ok"}.get(q["exposure"], "other"))
-        g = q["recommendation"]["group"]
-        a["groups"][g] = a["groups"].get(g, 0) + 1
     return {
         "assessed": len(done), "keep": groups.get("Keep as is", 0), "groups": groups,
         "figures": {"gaps": sum(q["gap"] for q in done), "ai_exposed": sum(q["exposure"] == "ai_exposed" for q in done),
-                    "assumptions": len(unreviewed)},
+                    "assumptions": len(unreviewed), "never_assessed": sum(t["finding"] == "not_assessed" for t in coverage["topics"])},
         "actions": [{"key": k, "questions": ids} for k, keys in ACTIONS if (ids := by_key(keys))]
         + ([{"key": "confirm_assumptions", "questions": sorted({q for q, _ in unreviewed}, key=order.index)}] if unreviewed else []),
         "matrix": {cell: [q["question_id"] for q in done if q["exposure"] == cell]
                    for cell in ("ai_exposed", "course_specific", "neither_taught", "broken_or_gap")},
-        "assessments": list(assessments.values()),
+        "coverage": {"weeks": coverage["weeks"],
+                     "assessments": [{"assessment_id": a, "week_cutoff": w} for a, w in coverage["assessments"]],
+                     "topics": [{"concept_id": t["concept_id"], "name": t["name"], "first_week": t["first_week"],
+                                 "assessed": t["finding"] != "not_assessed"} for t in coverage["topics"]]},
     }
 
 
 DEPTH_ORDER = ["mentioned", "explained", "worked_example", "practised"]
 
 
-def learning_path(concepts: list[dict], questions: list[dict]) -> dict:
-    """Topics by week with the questions that use them, and the findings (sys-design Stage 4 section 3).
+def topic_coverage(concepts: list[dict], questions: list[dict]) -> dict:
+    """Which topics the questions use, and the findings (sys-design Stage 4, "Coverage across the semester").
     concepts: the reviewed map (load_map). questions: the review's questions (resolved citations).
     A question uses a topic when a course or prerequisite step cites a passage the topic lists as evidence."""
     tagged: dict[str, set[str]] = {}
@@ -133,7 +130,7 @@ def learning_path(concepts: list[dict], questions: list[dict]) -> dict:
             upto = [o["depth"] for o in c["occurrences"] if o["week"] <= cutoff[qid]]
             if upto and max(upto, key=DEPTH_ORDER.index) == "mentioned":
                 mentioned.append({"question_id": qid, "week_cutoff": cutoff[qid], **passages[0]})
-        topics.append({"concept_id": c["concept_id"], "name": c["name"],
+        topics.append({"concept_id": c["concept_id"], "name": c["name"], "first_week": min((o["week"] for o in c["occurrences"]), default=None),
                        "depths": {str(o["week"]): o["depth"] for o in c["occurrences"]},
                        "questions": [q["question_id"] for q in questions if q["question_id"] in used],
                        "mentioned": mentioned,

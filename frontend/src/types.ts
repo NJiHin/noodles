@@ -27,16 +27,18 @@ export type ReviewQuestion = {
   marks: { student: Mark; web: Mark } | null
   exposure: 'ai_exposed' | 'course_specific' | 'neither_taught' | 'broken_or_gap' | 'not_assessed' | null
   recommendation: { key: string; group: string; title: string; text: string; facts: string } | null
+  only_mentioned: (Cited & { concept_id: string; name: string; question_id: string; week_cutoff: number })[]
 }
 export type Verdict = 'correct' | 'partial' | 'incorrect'
 export type Mark = { verdict: Verdict; reason: string; by: 'code' | 'marker'; overridden?: Verdict }
 export type ReviewResp = { course_code: string; run: RunStatus | null; prerequisite: string | null; questions: ReviewQuestion[] }
 export type Summary = {
   course_code: string; run: RunStatus | null; assessed: number; keep: number; groups: Record<string, number>
-  figures: { gaps: number; ai_exposed: number; assumptions: number }
+  figures: { gaps: number; ai_exposed: number; assumptions: number; never_assessed: number }
   actions: { key: string; questions: string[] }[]
   matrix: Record<'ai_exposed' | 'course_specific' | 'neither_taught' | 'broken_or_gap', string[]>
-  assessments: { assessment_id: string; week_cutoff: number; current_format: string; segments: string[]; groups: Record<string, number> }[]
+  coverage: { weeks: number[]; assessments: { assessment_id: string; week_cutoff: number }[]
+    topics: { concept_id: string; name: string; first_week: number | null; assessed: boolean }[] }
 }
 export type FieldChange = { field: 'student_verdict' | 'web_verdict' | 'exposure' | 'gap' | 'recommendation'; before: string | boolean | null; after: string | boolean | null }
 export type Changes = {

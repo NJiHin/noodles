@@ -54,3 +54,7 @@
 .review .s.ask .card { border-color: #C9CFF3; }
 .review .decide { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 .review .decide span { flex: 1; color: var(--ink-2); font-size: 13px; }
+
+/* a topic the question relies on that was only mentioned by its cutoff */
+.thin-note { background: var(--warn-t); border-radius: 8px; padding: 10px 14px; font-size: 13.5px; display: grid; gap: 4px; }
+.thin-note a { color: var(--accent); }

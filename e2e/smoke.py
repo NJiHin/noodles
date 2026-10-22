@@ -216,7 +216,7 @@ def slice07(page: Page, tmp: Path) -> None:
 
 
 def slice08(page: Page, tmp: Path) -> None:
-    """Recommendation block and grouping in the review; summary verdict, actions, grid and bars."""
+    """Recommendation block and grouping in the review; summary verdict, actions and grid."""
     expect(page.locator(".rec b", has_text="Fix coverage first, then reassess")).to_be_visible()
     expect(page.get_by_text("Step 2 has no source.")).to_be_visible()
     expect(page.locator(".group", has_text="Fix coverage first")).to_be_visible()
@@ -225,7 +225,7 @@ def slice08(page: Page, tmp: Path) -> None:
     expect(page.get_by_text("0 of 1 questions can stay as they are.")).to_be_visible()
     expect(page.locator(".actions b", has_text="Fix coverage first")).to_be_visible()
     expect(page.locator(".cell.good .chip", has_text="Q1")).to_be_visible()  # overridden in slice 07: web wrong
-    expect(page.locator(".bar span.gap")).to_have_count(1)
+    expect(page.get_by_role("heading", name="By assessment")).to_have_count(0)  # repeated the actions and the grid
     shot(page, "08-summary")
     page.locator(".actions .chip").first.click()
     expect(page.get_by_role("heading", name="The student's steps")).to_be_visible()
@@ -249,13 +249,14 @@ def slice09(page: Page, tmp: Path) -> None:
 
 
 def slice10(page: Page, tmp: Path) -> None:
-    """Topics by week with depth cells, the question using a topic, never-assessed topics, the gap list."""
-    page.get_by_role("link", name="Learning path").click()
-    expect(page.get_by_role("heading", name="Topics by week")).to_be_visible()
-    expect(page.locator(".lp .c .d").first).to_be_visible()
-    expect(page.locator(".lp .by .chip", has_text="Q1").first).to_be_visible()
-    expect(page.get_by_role("heading", name="Coverage gaps")).to_be_visible()
-    shot(page, "10-learning-path")
+    """Summary: what the assessments cover (topics per week, assessed or never), and the never-assessed figure."""
+    page.get_by_role("link", name="Summary").click()
+    expect(page.get_by_role("heading", name="What the assessments cover")).to_be_visible()
+    expect(page.locator(".cov-col").first).to_be_visible()
+    expect(page.locator(".figures")).to_contain_text("never assessed")
+    expect(page.locator(".cov-per > div").first).to_contain_text("never assessed")
+    expect(page.get_by_role("link", name="Learning path")).to_have_count(0)
+    shot(page, "10-summary-coverage")
 
 
 def api_wait(run_id: str) -> None:

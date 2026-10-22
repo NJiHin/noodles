@@ -25,32 +25,29 @@ def setup(client):
         {"claim": "Iteration recurs.", "source": "assumed_knowledge", "evidence": [], "reason": "Known.", "accepted_id": None},
     ]}
     assert drive(client, vid)["status"] == "done"
-    lp = client.get(f"/versions/{vid}/learning-path").json()
-    return lp, {t["concept_id"]: t for t in lp["topics"]}
+    s = client.get(f"/versions/{vid}/summary").json()
+    review = {q["question_id"]: q for q in client.get(f"/versions/{vid}/review").json()["questions"]}
+    return s, {t["concept_id"]: t for t in s["coverage"]["topics"]}, review
 
 
 def test_passage_with_two_topics_counts_for_both(client):
-    _, t = setup(client)
-    assert t["CS2030:variables"]["questions"] == ["quiz-q1", "quiz-q2"]
-    assert t["CS2030:call-stack"]["questions"] == ["quiz-q1", "quiz-q2"]
+    _, t, _ = setup(client)
+    assert t["CS2030:variables"]["assessed"] and t["CS2030:call-stack"]["assessed"]
 
 
 def test_assumed_or_none_step_topic_not_assessed(client):
-    lp, t = setup(client)
-    assert t["CS2030:loops"]["questions"] == [] and t["CS2030:loops"]["finding"] == "not_assessed"
+    _, t, _ = setup(client)
+    assert not t["CS2030:loops"]["assessed"]
 
 
-def test_only_mentioned_up_to_cutoff(client):
-    _, t = setup(client)
-    cs = t["CS2030:call-stack"]
-    assert cs["finding"] == "only_mentioned"
-    m = cs["mentioned"][0]
-    assert m["question_id"] == "quiz-q1" and m["week"] == 1 and m["page"] == 1 and m["slug"] == "week1"
-    assert t["CS2030:variables"]["finding"] is None
-    assert cs["depths"] == {"1": "mentioned", "3": "worked_example"}
+def test_only_mentioned_up_to_cutoff_flagged_on_the_question(client):
+    _, _, review = setup(client)
+    [m] = review["quiz-q1"]["only_mentioned"]
+    assert m["name"] == "call-stack" and m["week"] == 1 and m["page"] == 1 and m["slug"] == "week1" and m["week_cutoff"] == 2
 
 
-def test_never_cited_topic_not_assessed(client):
-    lp, t = setup(client)
-    assert t["CS2030:recursion"]["finding"] == "not_assessed"
-    assert lp["weeks"] == [1, 2, 3] and lp["assessments"] == [{"assessment_id": "quiz", "week_cutoff": 2}]
+def test_summary_coverage_by_week_and_never_assessed_count(client):
+    s, t, _ = setup(client)
+    assert not t["CS2030:recursion"]["assessed"] and t["CS2030:recursion"]["first_week"] == 3
+    assert s["coverage"]["weeks"] == [1, 2, 3] and s["coverage"]["assessments"] == [{"assessment_id": "quiz", "week_cutoff": 2}]
+    assert s["figures"]["never_assessed"] == 2  # loops, recursion

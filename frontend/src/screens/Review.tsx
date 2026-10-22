@@ -93,6 +93,14 @@ function Detail({ q, prereq, runId, course, reload, notice }: { q: ReviewQuestio
         {q.options && <ol className="opts">{q.options.map((o, i) => <li key={i}>({String.fromCharCode(65 + i)}) {o}</li>)}</ol>}
       </div>
       {notice}
+      {q.only_mentioned.length > 0 && (
+        <div className="thin-note">
+          {q.only_mentioned.map((m) => (
+            <p key={m.concept_id}><b>Only mentioned.</b> Relies on <b>{m.name}</b>, which is only mentioned up to week {m.week_cutoff}:{' '}
+              <PageLink vid={m.version_id!} slug={m.slug!} page={m.page!}>week {m.week}, {m.slug} p{m.page}</PageLink>. A passing mention may be intentional.</p>
+          ))}
+        </div>
+      )}
       {q.type === 'code' && <p className="muted">Not assessed (code question).</p>}
       {q.type !== 'code' && !a && <p className="muted">Not run yet. Start a test-drive to see the student's answer.</p>}
       {a && (
