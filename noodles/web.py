@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from noodles.llm import LUNA, SOL, Run
 
-WEB_V, MARK_V = "web-v1", "mark-v1"
+WEB_V, MARK_V = "web-v2", "mark-v1"
 Verdict = Literal["correct", "partial", "incorrect"]
 WEB_SEARCH = [{"type": "web_search"}]
 
@@ -22,7 +22,8 @@ class Mark(BaseModel):
 
 
 WEB_PROMPT = """Answer the exam question. Search the web as you need. Answer concisely, as in an exam.
-For multiple choice, give the letter of the option. List the URLs of the sources you used."""
+For multiple choice, give the letter of the option. Write any mathematics in LaTeX inside \\( \\) (inline) or \\[ \\] (display).
+List the URLs of the sources you used."""
 
 MARK_PROMPT = """You mark one answer to an exam question against the professor's marking material.
 The marking material may be in any form (model answer, rubric, marking scheme); judge against it as it is.

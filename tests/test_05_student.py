@@ -137,7 +137,7 @@ def test_unlisted_topic_rejected_and_sixth_lookup_refused(client, target):
     assert "not a listed topic" in outs[0] and "CS2030-w1" not in outs[0]
     assert all("CS2030-w1-week1-p1" in o for o in outs[1:5])
     assert "limit" in outs[5] and "CS2030-w1-week1-p1" not in outs[5]
-    assert sum(1 for _, t in student_calls(client) if t) == 2 * 5  # no tools offered once 5 lookups are used
+    assert sum(1 for _, t in student_calls(client) if any(x["name"] == "lookup_concept" for x in t or [])) == 2 * 5  # no lookups once 5 are used
 
 
 def test_none_step_without_hits_keeps_label_no_extra_call(client, target):
@@ -252,3 +252,72 @@ def test_results_outdated_per_question_after_adding_files(client, target):
     rerun(client, target, ["quiz-q1"])
     r = review(client, target)
     assert not r["quiz-q1"]["outdated"] and r["quiz-q2"]["outdated"]
+
+
+@pytest.mark.parametrize("expr,out", [("1**2+2**2+3**2+4**2+5**2+6**2+7**2+8**2+9**2+10**2", "385"),
+                                      ("(10*493 - 55*75)/(10*385 - 55**2)", "0.975757575758"),
+                                      ("sqrt(16) + log(exp(2)) - abs(-1) + round(2.5)", "7"),
+                                      ("7 % 3", "1"), ("(10*385 - 55^2)", "825")])
+def test_calculator_evaluates_arithmetic(expr, out):
+    from noodles.student import calculate
+    assert calculate(expr) == out
+
+
+@pytest.mark.parametrize("expr", ["__import__('os')", "x + 1", "(1).real", "9**9**9", "9^9^9", "1/0", "[1, 2]"])
+def test_calculator_refuses_anything_else(expr):
+    from noodles.student import calculate
+    assert calculate(expr).startswith("Error")
+
+
+def test_calculator_says_what_to_do_with_placeholders():
+    from noodles.student import calculate
+    assert "numbers only" in calculate("(10*? - ?*?)/(10*? - ?^2)")
+
+
+def test_repeating_a_failed_calculation_is_answered_with_what_to_do(client, target):
+    seen = []
+
+    def student(m, t):
+        seen[:] = outputs(m)
+        if len(seen) < 2:
+            return [{"type": "function_call", "call_id": f"c{len(seen)}", "name": "calculate",
+                     "arguments": json.dumps({"expression": "10*?", "label": "slope"})}]
+        return answer([], final="1")
+    fake(client).handlers["StudentAnswer"] = student
+    drive(client, target)
+    assert "already failed" in seen[1]
+
+
+def test_calculations_become_steps_without_checks_or_gaps(client, target):
+    calls = [("1+2", "S_x"), ("1+2", "S_x"), ("x+1", "bad"), ("55*75", "product")]
+
+    def student(m, t):
+        done = len(outputs(m))
+        if done < len(calls):
+            e, label = calls[done]
+            assert any(x["name"] == "calculate" for x in t)
+            return [{"type": "function_call", "call_id": f"c{done}", "name": "calculate",
+                     "arguments": json.dumps({"expression": e, "label": label})}]
+        return answer([], final="4125")
+    fake(client).handlers["StudentAnswer"] = student
+    drive(client, target)
+    q = review(client, target)["quiz-q1"]
+    steps = q["answer"]["steps"]
+    # a repeated call shows once and a failed one not at all; neither checked nor a gap, nor a knowledge step
+    assert [(s["source"], s["claim"]) for s in steps] == [("calculation", "S_x: 1+2 = 3"), ("calculation", "product: 55*75 = 4125")]
+    assert all(s["grounding"] is None for s in steps) and not q["gap"]
+    assert "0 knowledge steps" in q["recommendation"]["facts"]
+
+
+def test_student_can_use_the_calculator(client, target):
+    seen = []
+
+    def student(m, t):
+        if not any(x.get("type") == "function_call_output" for x in m):
+            assert any(x["name"] == "calculate" for x in t)
+            return [{"type": "function_call", "call_id": "c1", "name": "calculate", "arguments": json.dumps({"expression": "55*75", "label": "product"})}]
+        seen.extend(outputs(m))
+        return answer([], final="4125")
+    fake(client).handlers["StudentAnswer"] = student
+    drive(client, target)
+    assert seen and seen[0] == "4125"

@@ -30,9 +30,14 @@ ACTIONS = [("fix_coverage", ["fix_coverage"]), ("review", ["review_untaught", "r
            ("keep_open", ["keep_open"]), ("change_format", ["closed_book", "open_book_or_redesign"])]
 
 
+def knowledge_steps(q: dict) -> list[dict]:
+    """The steps that bring in knowledge: not the calculator's working."""
+    return [s for s in q["answer"]["steps"] if s["source"] != "calculation"]
+
+
 def is_lookup(q: dict) -> bool:
     """One knowledge step or fewer is lookup; two or more is reasoning (a heuristic)."""
-    return len(q["answer"]["steps"]) <= 1
+    return len(knowledge_steps(q)) <= 1
 
 
 def recommend(q: dict) -> dict:
@@ -60,7 +65,7 @@ def recommend(q: dict) -> dict:
             if s["source"] == "none" or (s.get("grounding") or {}).get("verdict") == "unsupported"
             or (s.get("assumption") or {}).get("state") == "rejected"]):
         text = "; ".join(why).capitalize() + "."
-    n = len(q["answer"]["steps"])
+    n = len(knowledge_steps(q))
     facts = []
     if m:
         facts.append("AI-exposed: both answers correct." if right["student"] and right["web"] else

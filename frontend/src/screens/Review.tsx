@@ -120,7 +120,7 @@ function Detail({ q, prereq, course, reload, rerun, notice }: { q: ReviewQuestio
           <div className="steps">
             <div className="steps-h"><h2>The student's steps</h2>
               <button className="btn rerun" disabled={!rerun} onClick={rerun}><RerunIcon />Rerun this question</button></div>
-            {a.steps.length === 0 && <p className="muted">No knowledge steps listed.</p>}
+            {!a.steps.some((s) => s.source !== 'calculation') && <p className="muted">No knowledge steps listed.</p>}
             <ol>{a.steps.map((s, i) => <StepItem key={s.step_id} s={s} n={i + 1} cutoff={q.week_cutoff} prereq={prereq} course={course} reload={reload} />)}</ol>
           </div>
         </>
@@ -133,12 +133,14 @@ function StepItem({ s, n, cutoff, prereq, course, reload }: { s: Step; n: number
   const g = s.grounding
   const as = s.assumption
   const cls = s.source === 'none' || g?.verdict === 'unsupported' || as?.state === 'rejected' ? ' miss' : g?.verdict === 'partial' ? ' thin'
-    : as?.state === 'unreviewed' ? ' ask' : ''
+    : as?.state === 'unreviewed' ? ' ask' : s.source === 'calculation' ? ' calc' : ''
   const decide = async (decision: 'accepted' | 'rejected') => { await post(`/courses/${course}/assumptions`, { claim: s.claim, decision }); reload() }
   return (
     <li className={`s${cls}`}><span className="mark">{n}</span>
       <div className="card">
-        <p className="claim"><Tex>{s.claim}</Tex></p>
+        {s.source === 'calculation'
+          ? <p className="claim"><span className="v n">Calculator</span> <code>{s.claim}</code></p>
+          : <p className="claim"><Tex>{s.claim}</Tex></p>}
         {s.evidence.map((p) => (
           <div className="passage" key={p.passage_id}>
             {p.slug && p.version_id && p.page

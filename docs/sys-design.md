@@ -171,6 +171,7 @@ Calculating these on demand keeps them in step with the map after a professor co
   ```
 - **Lookup tool:** `lookup_concept(topic_ids)`. `topic_ids` is an enum of the listed IDs, so the student can't ask for a topic that doesn't exist. Code returns every passage tagged with those topics from weeks up to N (and the prerequisite), each with its passage ID and contextual heading.
 - **Calling is optional:** zero calls is valid. If no listed topic fits, the student answers with what it has and labels the steps `none` or `assumed_knowledge`. Up to about 5 calls per question, capped in code.
+- **Calculator tool:** `calculate(expression)` evaluates arithmetic exactly (numbers, `+ - * / % **` (or `^`), brackets, `sqrt`, `log`, `exp`, `abs`, `round`; parsed, never `eval`'d), at most 30 calls per question. The prompt tells the student to use it for every calculation, as a student would use a calculator in the exam. An expression it can't read (e.g. with `?` placeholders) is answered with what to do (work out the missing values first, then send numbers), and an expression that already failed isn't evaluated again. Each call carries a short label (what the result is, e.g. "S_xy"). Every distinct successful calculation becomes a step after the knowledge steps, with `source: "calculation"` and the claim "label: expression = result", so the professor can see which numbers went in. Calculation steps are never grounded, never a gap, and not counted as knowledge steps (lookup or reasoning). Without it the student model made long-hand slips (e.g. 1² + … + 10² = 285) that the grid then read as "needs untaught knowledge".
 - **Re-check of uncited steps:** a single pass after the student answers, not a loop. This catches topics the student overlooked and passages the extractor never tagged.
   1. For each `none` or `assumed_knowledge` step, code runs one FTS5 keyword search using the step's claim, over passages within the week limit (headings included, so aliases match). Each word of the claim is quoted, since raw text like "n = 2k + 1" is invalid FTS5 syntax.
   2. Steps with no hits keep their label, with no call.
@@ -188,12 +189,14 @@ Calculating these on demand keeps them in step with the map after a professor co
   "final_answer": "B",
   "steps": [
     { "step_id": "q07-s1", "claim": "A recursive function needs a base case.", "source": "course", "evidence": ["CS1010-w5-slides-p12"] },
-    { "step_id": "q07-s2", "claim": "Rearranging gives n = 2k + 1.", "source": "assumed_knowledge", "reason": "The entry requirement is A-level maths, which covers basic algebra." },
+    { "step_id": "q07-s2", "claim": "A square matrix is invertible exactly when its determinant is non-zero.", "source": "assumed_knowledge", "reason": "Linear algebra is a stated prerequisite of the course." },
     { "step_id": "q07-s3", "claim": "Memoisation caches results.", "source": "none" }
   ]
 }
 ```
 
+- **School-level knowledge is not a step:** every university student is taken to know secondary-school and pre-university (A-level/JC) mathematics and general knowledge, e.g. arithmetic, basic algebra, reading a table, substituting values into a formula the question gives. The student folds these into the claims of the steps that use them and never lists them, so they are neither assumed knowledge for the professor to confirm nor gaps. Anything printed in the question itself (its data, tables and any formula it gives) is not knowledge either: using it is never a step and needs no source, and the prompt says so in those words with an example (computing a mean from a table in the question is no step). A question that needs nothing more (e.g. computing a value from a formula and data printed on the paper) has no steps.
+- **Mathematics in answers** (student and web agent) is LaTeX inside `\( \)` or `\[ \]`, so the report renders it.
 - No `status` field. Coverage comes from the steps (any `none` step is a gap) and correctness from the marker, so the student can't contradict itself.
 - `final_answer` is `null` if the student can't attempt the question; it still lists the steps it managed.
 - `source` is one of:
@@ -201,9 +204,10 @@ Calculating these on demand keeps them in step with the map after a professor co
   - `prerequisite`: must cite passages from the prerequisite course
   - `assumed_knowledge`: must give a one-line reason, or the `accepted_id` of an accepted claim
   - `none`: no source
+  - `calculation`: added by code from the calculator's calls, not chosen by the student (see Retrieval)
 - Use `prerequisite` whenever the material exists there. Use `assumed_knowledge` only when it doesn't.
 - **The student's system prompt must state the difference between `assumed_knowledge` and `none` explicitly:**
-  - `assumed_knowledge`: something implied by the course's stated entry requirements (e.g. A-level maths, or the prerequisite course) that isn't in the provided materials. It must come with a one-line reason.
+  - `assumed_knowledge`: something beyond pre-university level that the course's stated entry requirements imply (e.g. its prerequisite course) but that isn't in the provided materials. It must come with a one-line reason.
   - `none`: subject knowledge the answer needs that the student wouldn't already know and can't find in the course or prerequisite materials.
   - Include a short example of each in the prompt, and tell the agent to choose `none` when it's unsure.
 - **Decided claims in the prompt:** the student's system prompt lists the course's assumed-knowledge decisions, each with its ID:

@@ -1,9 +1,12 @@
-"""Stage 2: the student agent (topic list, lookup_concept tool loop) and the re-check of uncited steps.
+"""Stage 2: the student agent (topic list, lookup_concept and calculate tool loop) and the re-check of uncited steps.
 
 Student-facing queries go through student_conn(), which can't read the assessment tables.
 """
+import ast
 import asyncio
 import json
+import math
+import operator
 import re
 import sqlite3
 from pathlib import Path
@@ -17,8 +20,8 @@ from noodles.grounding import ground
 from noodles.web import mark, question_text, web_agent
 from noodles.llm import LUNA, Run, add_usage
 
-STUDENT_V, RECHECK_V = "student-v1", "recheck-v1"
-MAX_LOOKUPS, RECHECK_HITS = 5, 3
+STUDENT_V, RECHECK_V = "student-v7", "recheck-v1"  # v7: calculator says how to recover from a failed expression
+MAX_LOOKUPS, RECHECK_HITS, MAX_CALCS = 5, 3, 30
 Source = Literal["course", "prerequisite", "assumed_knowledge", "none"]
 ASSESSMENT_TABLES = {"assessments", "assessment_files", "questions"}
 
@@ -105,21 +108,60 @@ def show(p) -> str:
 
 PROMPT = """You are a student. You have completed {prereq} and attended weeks 1 to {n} of {course}. You know nothing else in this subject.
 
-Answer the exam question concisely, as in an exam. List the steps of your answer: only steps that bring in knowledge, with pure reasoning folded into those steps' claims. For each step give its source:
+Answer the exam question concisely, as in an exam. List the steps of your answer: only steps that bring in knowledge, with pure reasoning folded into those steps' claims. As a university student you already know secondary-school and pre-university (A-level/JC) mathematics and general knowledge, such as arithmetic, basic algebra, reading a table and substituting values into a formula you are given: never list these as steps, fold them into the claims of the steps that use them. Anything printed in the question itself (its data, tables, and any formula it gives you) is not knowledge: using it is never a step and needs no source. Example: computing a mean from a table in the question is no step. If the question gives everything you need, list no steps. Write any mathematics in LaTeX inside \\( \\) (inline) or \\[ \\] (display). For each step give its source:
 - "course": you found it in a passage of {course} weeks 1 to {n}. Cite the passage IDs as evidence.
 - "prerequisite": you found it in a passage of the prerequisite course. Cite the passage IDs as evidence.
-- "assumed_knowledge": something implied by the course's stated entry requirements (e.g. A-level maths, or the prerequisite course) that isn't in the provided materials. Give a one-line reason. Example: "Rearranging gives n = 2k + 1." with reason "The entry requirement is A-level maths, which covers basic algebra."
+- "assumed_knowledge": something beyond pre-university level that the course's stated entry requirements imply (e.g. its prerequisite course) but that isn't in the provided materials. Give a one-line reason. Example: "A square matrix is invertible exactly when its determinant is non-zero." with reason "Linear algebra is a stated prerequisite of the course."
 - "none": subject knowledge the answer needs that you wouldn't already know and can't find in the course or prerequisite materials. Example: "Memoisation caches results." when no passage covers memoisation.
 Use "prerequisite" whenever the material exists there; use "assumed_knowledge" only when it doesn't. When unsure between "assumed_knowledge" and "none", choose "none".
 Cite only passage IDs you were shown. Leave evidence empty for "assumed_knowledge" and "none", and reason and accepted_id null unless stated below.
 If you can't attempt the question, set final_answer to null and still list the steps you managed.
 
-{decided}To read the materials, call lookup_concept with the IDs of the topics you need (at most {max} calls; zero is fine). It returns every passage tagged with those topics. The topics you have been taught:
+{decided}Use the calculate tool for every calculation instead of working it out yourself, as you would use a calculator in the exam.
+To read the materials, call lookup_concept with the IDs of the topics you need (at most {max} calls; zero is fine). It returns every passage tagged with those topics. The topics you have been taught:
 {topics}"""
 
 RECHECK = """A keyword search of the materials you can see found passages for some of your uncited steps (numbered from 1 in your answer). For each step below, return its corrected label: "course" or "prerequisite" with the passage IDs that support it, or keep it "none" or "assumed_knowledge" (with its reason) if these passages don't cover it.
 
 """
+
+
+CALC = {"type": "function", "name": "calculate", "strict": True,
+        "description": "Evaluates an arithmetic expression: numbers, + - * / % ** (or ^) and brackets, and the functions sqrt, log, "
+                       "exp, abs and round. Returns the result, or an error. label: what the result is, e.g. \"S_xy\".",
+        "parameters": {"type": "object", "additionalProperties": False, "required": ["expression", "label"],
+                       "properties": {"expression": {"type": "string"}, "label": {"type": "string"}}}}
+OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
+       ast.Mod: operator.mod, ast.Pow: operator.pow, ast.USub: operator.neg, ast.UAdd: operator.pos}
+FUNCS = {"sqrt": math.sqrt, "log": math.log, "exp": math.exp, "abs": abs, "round": round}
+
+
+def calculate(expression: str) -> str:
+    """The student's calculator: arithmetic only, by walking the parsed expression (never eval)."""
+    def ev(n):
+        if isinstance(n, ast.Constant) and type(n.value) in (int, float):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in OPS:
+            a, b = ev(n.left), ev(n.right)
+            if isinstance(n.op, ast.Pow) and (abs(b) > 1000 or abs(a) > 1e100):
+                raise ValueError("power too large")
+            return OPS[type(n.op)](a, b)
+        if isinstance(n, ast.UnaryOp) and type(n.op) in OPS:
+            return OPS[type(n.op)](ev(n.operand))
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in FUNCS and not n.keywords:
+            return FUNCS[n.func.id](*map(ev, n.args))
+        raise ValueError("only numbers, + - * / % ** and sqrt, log, exp, abs, round are allowed")
+    try:
+        if len(expression) > 500:
+            raise ValueError("expression too long")
+        # "^" means a power, as on a calculator; rewriting it keeps power's precedence (Python's ^ binds below + and *)
+        x = ev(ast.parse(expression.replace("^", "**"), mode="eval").body)
+        return str(x) if isinstance(x, int) else format(x, ".12g")
+    except SyntaxError:
+        return ("Error: not an expression the calculator can read. Use numbers only, no placeholders or names: "
+                "work out any value you still need first (e.g. a sum from the table), then put the number in.")
+    except (ValueError, TypeError, ZeroDivisionError, OverflowError, RecursionError) as e:
+        return f"Error: {e}"
 
 
 def tool(ids: list[str]) -> dict:
@@ -162,19 +204,35 @@ async def student(run: Run, conn: sqlite3.Connection, q: dict, course: str, targ
     messages = [{"role": "system", "content": system}, {"role": "user", "content": question_text(q)}]
 
     async def loop():
-        convo, usage, lookups = list(messages), {}, 0
+        convo, usage, lookups, calcs = list(messages), {}, 0, 0
+        worked: list[str] = []  # each distinct successful calculation, shown to the professor as a step
+        failed: set[str] = set()
         while True:
-            out, u = await run.request("student", LUNA, convo, StudentAnswer,
-                                       [tool(ids)] if ids and lookups < MAX_LOOKUPS else None)
+            tools = ([tool(ids)] if ids and lookups < MAX_LOOKUPS else []) + ([CALC] if calcs < MAX_CALCS else [])
+            out, u = await run.request("student", LUNA, convo, StudentAnswer, tools or None)
             usage = add_usage(usage, u)
             if not isinstance(out, list):
                 return out.model_dump(), usage, {"conversation": convo + [{"role": "assistant", "content": out.model_dump_json()}],
-                                                 "lookups": lookups}
+                                                 "lookups": lookups, "calculations": worked}
             for call in out:
-                lookups += 1
                 convo.append(call)
-                convo.append({"type": "function_call_output", "call_id": call["call_id"],
-                              "output": tool_output(conn, call, ids, lookups, target, n, prereq)})
+                if call["name"] == "calculate":
+                    calcs += 1
+                    try:
+                        args = json.loads(call["arguments"])
+                        result = ("Error: this expression already failed. Don't send it again: work out the values it needs "
+                                  "first, then send the numbers.") if args["expression"] in failed else calculate(args["expression"])
+                        if result.startswith("Error"):
+                            failed.add(args["expression"])
+                        line = f"{args.get('label') or 'Calculation'}: {args['expression']} = {result}"
+                        if not result.startswith("Error") and line not in worked:
+                            worked.append(line)
+                    except (ValueError, KeyError, TypeError):
+                        result = "Rejected: arguments must be {\"expression\": \"...\", \"label\": \"...\"}."
+                else:
+                    lookups += 1
+                    result = tool_output(conn, call, ids, lookups, target, n, prereq)
+                convo.append({"type": "function_call_output", "call_id": call["call_id"], "output": result})
 
     rec = await run.cached("student", LUNA, STUDENT_V, [messages, ids, reachable(conn, target, n, prereq)],
                            q["question_id"], loop)
@@ -190,6 +248,8 @@ async def student(run: Run, conn: sqlite3.Connection, q: dict, course: str, targ
         for r in fixed.steps:
             if r.step in found:
                 steps[r.step - 1].update(r.model_dump(exclude={"step"}))
+    # the calculator's working, after the knowledge steps: never grounded, never a gap, not a knowledge step
+    steps += [{"claim": c, "source": "calculation", "evidence": [], "reason": None, "accepted_id": None} for c in rec["calculations"]]
     return {"question_id": q["question_id"], "week_cutoff": n, "final_answer": answer.final_answer,
             "steps": [{"step_id": f"{q['question_id']}-s{i}", **s} for i, s in enumerate(steps, 1)]}
 
