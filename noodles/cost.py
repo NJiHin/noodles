@@ -1,9 +1,15 @@
 """Actual run cost from the run log (sys-design "Cost reporting"): token usage of new calls, priced per model."""
 
-# US$ per 1M tokens. shortcut: not set yet (neither doc gives GPT-6 prices); fill in from OpenAI's pricing page.
+# US$ per 1M tokens, standard tier, from https://developers.openai.com/api/docs/pricing (checked 22 Oct 2026).
+# Web search: US$10 per 1k calls for all models; its search content tokens are billed as model input tokens.
+# shortcut: the pricing page also lists cache writes (Sol $2.50, Luna $0.125 per 1M) that the usage we log doesn't
+# separate, so they're counted as plain input; add them if the API starts reporting cache-write tokens.
 # While a model used by the run has no price, the total is None and only token counts are reported.
-PRICES: dict[str, dict[str, float]] = {}
-WEB_SEARCH: float | None = None  # US$ per web-search call
+PRICES: dict[str, dict[str, float]] = {
+    "gpt-6-sol": {"input": 2.00, "cached_input": 0.20, "output": 10.00},
+    "gpt-6-luna": {"input": 0.10, "cached_input": 0.01, "output": 0.50},
+}
+WEB_SEARCH: float | None = 10.00 / 1000  # US$ per web-search call
 
 
 def run_cost(records: list[dict]) -> dict:

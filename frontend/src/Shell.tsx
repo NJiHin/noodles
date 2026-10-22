@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { api } from './api'
 
-export type Nav = { label: string; href: string; on?: boolean; n?: number }
+export type Nav = { label: string; href: string; on?: boolean; n?: number; divider?: boolean }  // divider: a line above it
 
 /** c-shell layout: left section list, then the page. */
 export function Shell({ course, sub, nav, children }: { course: string; sub: string; nav: Nav[]; children: ReactNode }) {
@@ -10,9 +10,12 @@ export function Shell({ course, sub, nav, children }: { course: string; sub: str
       <aside className="side">
         <div className="course"><b>{course}</b><span>{sub}</span></div>
         {nav.map((n) => (
-          <a key={n.href} className={n.on ? 'on' : ''} href={n.href}>
-            {n.label}{n.n !== undefined && <span className="n">{n.n}</span>}
-          </a>
+          <Fragment key={n.href}>
+            {n.divider && <hr className="side-div" />}
+            <a className={n.on ? 'on' : ''} href={n.href}>
+              {n.label}{n.n !== undefined && <span className="n">{n.n}</span>}
+            </a>
+          </Fragment>
         ))}
       </aside>
       {children}
@@ -29,8 +32,8 @@ export function versionNav(vid: string, on: string): Nav[] {
     { label: 'Materials', href: `#/v/${vid}/materials` },
     { label: 'Course map', href: `#/v/${vid}/map` },
     { label: 'Assessments', href: `#/v/${vid}/assessments` },
+    { label: 'Assessment review', href: `#/v/${vid}/review`, divider: true },  // results below; the review runs the test-drive
     { label: 'Summary', href: `#/v/${vid}/summary` },
-    { label: 'Assessment review', href: `#/v/${vid}/review` },
     { label: 'Changes since last run', href: `#/v/${vid}/changes` },
     { label: 'Method and limitations', href: `#/v/${vid}/method` },
   ].map((n) => ({ ...n, on: n.label === on }))

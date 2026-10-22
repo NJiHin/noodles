@@ -11,6 +11,17 @@ type Course = { code: string; versions: { map_reviewed_at: string | null }[] }
 const GROUNDING = { supported: 'Supported.', partial: 'Weak citation.', unsupported: 'Unsupported: counts as a gap.' }
 
 const short = (q: ReviewQuestion) => q.question_id.replace(`${q.assessment_id}-`, '').toUpperCase()
+const BY = ['Recommendation', 'Assessment', 'Week'] as const
+
+/** Weeks 1–13 as a 4 × 3 grid with week 13 centred below; filled where the question's topics are taught. */
+function WeekGrid({ weeks }: { weeks: number[] }) {
+  return (
+    <span className="wgrid" title={weeks.length ? `Weeks taught: ${weeks.join(', ')}` : 'No course topics used'}>
+      {Array.from({ length: 13 }, (_, i) => <i key={i} className={`${weeks.includes(i + 1) ? 'on' : ''}${i === 12 ? ' w13' : ''}`} />)}
+    </span>
+  )
+}
+const weeksOf = (q: ReviewQuestion) => [...new Set(q.topics.map((t) => t.week))]
 
 /** c2-review: questions on the left, the selected question's student answer and steps on the right. */
 export function Review({ vid, qid }: { vid: string; qid?: string }) {
@@ -19,6 +30,8 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
   const [prereq, setPrereq] = useState('')
   const [err, setErr] = useState('')
   const [chg, setChg] = useState<Record<string, string>>({})
+  const [by, setBy] = useState<typeof BY[number]>('Recommendation')
+  const [only, setOnly] = useState('')  // one assessment, or '' for all
   useEffect(() => {
     api<Changes>(`/versions/${vid}/changes`).then((c) => setChg(Object.fromEntries((c.questions ?? []).map((q) => {
       const gap = q.fields.find((f) => f.field === 'gap')
@@ -40,11 +53,15 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
     try { await post(`/versions/${vid}/test-drives`, { prerequisite: prereq || null, questions }); await load() } catch (e) { setErr((e as Error).message) }
   }
 
-  const qs = r?.questions ?? []
+  const qs = (r?.questions ?? []).filter((q) => !only || q.assessment_id === only)
+  const papers = [...new Set((r?.questions ?? []).map((q) => q.assessment_id))]
+  const rows = (pick: (q: ReviewQuestion) => boolean) => qs.filter(pick).map((q) => [q, q.text] as [ReviewQuestion, string])
   // each group lists [question, line of text]; an unreviewed assumption also lists its question under "Confirm an assumption"
-  const groups: [string, [ReviewQuestion, string][]][] = GROUPS.map((g) => [g, g === ASSUME
-    ? qs.flatMap((q) => (q.answer?.steps ?? []).filter((s) => s.assumption?.state === 'unreviewed').map((s) => [q, `Assumes: ${s.claim}`] as [ReviewQuestion, string]))
-    : qs.filter((q) => (q.recommendation?.group ?? 'Not run yet') === g).map((q) => [q, q.text] as [ReviewQuestion, string])])
+  const groups: [string, [ReviewQuestion, string][]][] = by === 'Assessment' ? papers.map((a) => [a, rows((q) => q.assessment_id === a)])
+    : by === 'Week' ? [...new Set(qs.map((q) => q.week_cutoff))].sort((a, b) => a - b).map((w) => [`Covers weeks 1 to ${w}`, rows((q) => q.week_cutoff === w)])
+    : GROUPS.map((g) => [g, g === ASSUME
+      ? qs.flatMap((q) => (q.answer?.steps ?? []).filter((s) => s.assumption?.state === 'unreviewed').map((s) => [q, `Assumes: ${s.claim}`] as [ReviewQuestion, string]))
+      : rows((q) => (q.recommendation?.group ?? 'Not run yet') === g)])
   const sel = qs.find((q) => q.question_id === qid) ?? groups.flatMap(([, g]) => g)[0]?.[0]
   const running = r?.run?.status === 'running'
 
@@ -66,19 +83,27 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
               </div>
             )}
             {(err || r?.run?.error) && <p className="err">{err || r?.run?.error}</p>}
+            <div className="view-bar"><span>Group by</span>
+              <div className="seg">{BY.map((b) => <button key={b} className={by === b ? 'on' : ''} aria-pressed={by === b} onClick={() => setBy(b)}>{b}</button>)}</div>
+              <select aria-label="Show assessment" value={only} onChange={(e) => setOnly(e.target.value)}>
+                <option value="">All assessments</option>
+                {papers.map((a) => <option key={a}>{a}</option>)}
+              </select>
+            </div>
           </div>
           {groups.filter(([, g]) => g.length).map(([name, g]) => (
             <div key={name}>
               <div className="group"><span>{name}</span><span>{g.length}</span></div>
+              <div className="cols-h"><span /><span>Question</span><span>Weeks</span><span>Paper</span></div>
               {g.map(([q, text], i) => (
                 <a key={`${q.question_id}-${i}`} className={`item${q === sel ? ' on' : ''}${q.type === 'code' || q.recommendation?.group === 'Keep as is' ? ' done' : ''}`} href={`#/v/${vid}/review/${q.question_id}`}>
-                  <span className="id" title={short(q)}>{short(q)}</span><span className="t"><Tex>{text}</Tex></span><span className="wk">{q.assessment_id}{chg[q.question_id] && <span className="chg" title="Since the last run of the previous version">{chg[q.question_id]}</span>}</span>
+                  <span className="id" title={short(q)}>{short(q)}</span><span className="t"><Tex>{text}</Tex></span><WeekGrid weeks={weeksOf(q)} /><span className="wk" title={q.assessment_id}>{q.assessment_id}{chg[q.question_id] && <span className="chg" title="Since the last run of the previous version">{chg[q.question_id]}</span>}</span>
                 </a>
               ))}
             </div>
           ))}
         </section>
-        <main className="detail">{sel ? <Detail q={sel} prereq={r?.prerequisite ?? null} course={r?.course_code ?? ''} reload={load}
+        <main className="detail">{sel ? <Detail vid={vid} q={sel} prereq={r?.prerequisite ?? null} course={r?.course_code ?? ''} reload={load}
           rerun={running ? undefined : () => start([sel.question_id])}
           notice={<AddedNotice key={r?.run?.run_id} vid={vid} screen="results" results={{ outdated: sel.outdated ? 1 : 0, total: 1, rerun: () => start([sel.question_id]) }} />} /> : <p className="muted">Confirm an assessment's questions, then start a test-drive.</p>}</main>
       </div>
@@ -86,7 +111,7 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
   )
 }
 
-function Detail({ q, prereq, course, reload, rerun, notice }: { q: ReviewQuestion; prereq: string | null; course: string; reload: () => void; rerun?: () => void; notice: ReactNode }) {
+function Detail({ vid, q, prereq, course, reload, rerun, notice }: { vid: string; q: ReviewQuestion; prereq: string | null; course: string; reload: () => void; rerun?: () => void; notice: ReactNode }) {
   const runId = q.run_id ?? ''  // the run that gave this question's result; overrides belong to it
   const a = q.answer
   return (
@@ -111,6 +136,14 @@ function Detail({ q, prereq, course, reload, rerun, notice }: { q: ReviewQuestio
       {a && (
         <>
           <Recommendation q={q} />
+          {q.topics.length > 0 && (
+            <div className="topics-used"><h3>Topics this question tests</h3>
+              {weeksOf(q).map((w) => (
+                <div className="row" key={w}><b>Week {w}</b>
+                  <span>{q.topics.filter((t) => t.week === w).map((t, i) => <span key={t.concept_id}>{i > 0 && ' · '}<a href={`#/v/${vid}/map`}>{t.name}</a></span>)}</span></div>
+              ))}
+            </div>
+          )}
           <div className="answers">
             <AnswerCard title="Course-limited student" answer={a.final_answer} mark={q.marks?.student} gap={q.gap}
               override={(v) => setVerdict(runId, q.question_id, 'student', v, reload)} />
@@ -180,7 +213,7 @@ function AnswerCard({ title, answer, mark, gap, sources, override }: {
   const [open, setOpen] = useState(false)
   return (
     <div className="ans">
-      <h3>{title} <span>{gap && <span className="v bad">Gap</span>} {mark && <span className={`v ${VERDICT_CLASS[mark.verdict]}`}>{cap(mark.verdict)}</span>}</span></h3>
+      <h3>{title} <span>{gap && <span className="v bad">Gap</span>} {mark?.unclear && !mark.overridden && <span className="v part">Check answer</span>} {mark && <span className={`v ${VERDICT_CLASS[mark.verdict]}`}>{cap(mark.verdict)}</span>}</span></h3>
       <p className="a">{answer !== null ? <Tex>{answer}</Tex> : <span className="muted">No answer: couldn't attempt it.</span>}</p>
       <p className="src">
         {mark && <>{mark.by === 'marker' ? 'Marker: ' : ''}<Tex>{mark.reason}</Tex>

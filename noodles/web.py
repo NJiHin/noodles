@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from noodles.llm import LUNA, SOL, Run
 
-WEB_V, MARK_V = "web-v2", "mark-v1"
+WEB_V, MARK_V = "web-v4", "mark-v1"  # v4: the bare-answer line names final_answer
 Verdict = Literal["correct", "partial", "incorrect"]
 WEB_SEARCH = [{"type": "web_search"}]
 
@@ -22,7 +22,7 @@ class Mark(BaseModel):
 
 
 WEB_PROMPT = """Answer the exam question. Search the web as you need. Answer concisely, as in an exam.
-For multiple choice, give the letter of the option. Write any mathematics in LaTeX inside \\( \\) (inline) or \\[ \\] (display).
+final_answer is the answer alone: no explanation and no citations (list sources separately). Write any mathematics in LaTeX inside \\( \\) (inline) or \\[ \\] (display).
 List the URLs of the sources you used."""
 
 MARK_PROMPT = """You mark one answer to an exam question against the professor's marking material.
@@ -33,7 +33,9 @@ verdict: "correct", "partial" or "incorrect". reason: one line."""
 
 def question_text(q: dict) -> str:
     """What every agent sees: the question's context (if any), then the question and its options."""
-    return (f"{q['context']}\n\n" if q["context"] else "") + q["text"] + ("".join(f"\n({chr(65 + i)}) {o}" for i, o in enumerate(q["options"])) if q["options"] else "")
+    # scoped to the field: "Answer only …" made the student drop its steps too
+    how = {"mcq": "\n\nfinal_answer: only the option letter.", "true_false": '\n\nfinal_answer: only "True" or "False".'}.get(q["type"], "")
+    return (f"{q['context']}\n\n" if q["context"] else "") + q["text"] + ("".join(f"\n({chr(65 + i)}) {o}" for i, o in enumerate(q["options"])) if q["options"] else "") + how
 
 
 async def web_agent(run: Run, q: dict) -> dict:
@@ -45,18 +47,24 @@ async def web_agent(run: Run, q: dict) -> dict:
 
 
 def _norm(s: str) -> str:
+    s = re.sub(r"\(?\[[^\]]*\]\([^)]*\)\)?", "", s)  # markdown links, e.g. a web citation "([site](url))"
     s = re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
     return {"t": "true", "f": "false"}.get(s, s)
 
 
-def exact_match(q: dict, given: str) -> bool:
-    """Same answer as the key, where an option letter and its text count as the same answer."""
+def exact_match(q: dict, given: str) -> bool | None:
+    """Same answer as the key, where an option letter and its text count as the same answer.
+    None when the answer isn't one of the allowed forms (True/False, or an option's letter or text)."""
     def forms(x: str) -> set[str]:
         x, out = _norm(x), {_norm(x)}
         for i, o in enumerate(q["options"] or []):
             if x in (chr(97 + i), _norm(o)):
                 out |= {chr(97 + i), _norm(o)}
         return out
+    allowed = {"true", "false"} if q["type"] == "true_false" else {
+        f for i, o in enumerate(q["options"] or []) for f in (chr(97 + i), _norm(o))}
+    if _norm(given) not in allowed:
+        return None
     return bool(forms(given) & forms(q["marking_material"]))
 
 
@@ -67,6 +75,9 @@ async def mark(run: Run, q: dict, given: str | None) -> dict:
         return {"verdict": "incorrect", "reason": "No answer given.", "by": "code"}
     if q["type"] in ("mcq", "true_false"):
         ok = exact_match(q, given)
+        if ok is None:
+            return {"verdict": "incorrect", "by": "code", "unclear": True,
+                    "reason": "Couldn't read " + ("True or False" if q["type"] == "true_false" else "an option") + " from this answer. Check it and override the verdict."}
         return {"verdict": "correct" if ok else "incorrect", "by": "code",
                 "reason": "Exact match with the answer key." if ok else f"Doesn't match the answer key ({q['marking_material']})."}
     body = f"Question:\n{question_text(q)}\n\nMarking material:\n{q['marking_material']}\n\nAnswer:\n{given}"

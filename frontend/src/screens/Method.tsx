@@ -11,11 +11,16 @@ type M = {
     topics: number; map_reviewed_at: string | null; questions: number; assessments: number; assessed: number; rerun: number; models: string[]
   }) | null
   cost: { total: number | null; web_search_calls: number; by_type: Record<string, TypeCost> }
+  runs: { run_id: string; kind: string; started_at: string; assessment_id: string | null; questions: number
+    new_calls: number; web_search_calls: number; cost: number | null }[]
+  runs_total: number | null  // null while a price is missing
 }
 
 const MODEL: Record<string, string> = { 'gpt-6-luna': 'GPT-6 Luna', 'gpt-6-sol': 'GPT-6 Sol' }
 const usd = (x: number) => `US$${x.toFixed(x < 0.1 ? 4 : 2)}`
 const n = (x: number) => x.toLocaleString('en-GB')
+const when = (iso: string) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+const KIND: Record<string, string> = { map: 'Course map', split: 'Question split', test_drive: 'Test-drive' }
 
 const STEPS: [string, string][] = [
   ['Read the materials', 'Every slide or page becomes a passage. Pages with diagrams, tables or equations are transcribed by a vision model, and the report says when a step relies on one.'],
@@ -35,7 +40,7 @@ const LIMITS: [string, string][] = [
   ["It doesn't detect AI-written work.", 'Nor does it make any assessment AI-proof. Recommendations are advisory; you decide.'],
 ]
 
-/** c6-method: how the report was produced, this run's facts and actual cost, and the limitations. */
+/** c6-method: every run of the course with its cost, this run's facts, then how it works and the limitations. */
 export function Method({ vid }: { vid: string }) {
   const [m, setM] = useState<M | null>(null)
   const [err, setErr] = useState('')
@@ -55,8 +60,20 @@ export function Method({ vid }: { vid: string }) {
         {err && <p className="err">{err}</p>}
         <div className="cols">
           <section className="panel">
-            <h2>How it works</h2>
-            <ol className="flow">{STEPS.map(([b, p]) => <li key={b}><div><b>{b}</b><p>{p}</p></div></li>)}</ol>
+            <div className="runs-h"><h2>All runs for {m?.course_code ?? '…'}</h2>
+              {m && <span>{m.runs_total !== null ? <b>{usd(m.runs_total)}</b> : <b>Prices not set</b>} across {m.runs.length} run{m.runs.length === 1 ? '' : 's'} · group budget US$40</span>}</div>
+            {m && m.runs.length > 0 && (
+              <table className="t runs">
+                <thead><tr><th>When</th><th>Run</th><th>Questions</th><th>New calls</th><th>Web searches</th><th>Cost</th></tr></thead>
+                <tbody>{m.runs.map((x) => (
+                  <tr key={x.run_id}><td>{when(x.started_at)}</td><td>{KIND[x.kind] ?? x.kind}{x.assessment_id && `, ${x.assessment_id}`}</td>
+                    <td>{x.questions || '—'}</td><td>{x.new_calls}</td><td>{x.web_search_calls}</td><td>{x.new_calls === 0 ? '—' : x.cost !== null ? usd(x.cost) : '–'}</td></tr>
+                ))}</tbody>
+                <tfoot><tr><td colSpan={3}>Total</td><td>{m.runs.reduce((a, x) => a + x.new_calls, 0)}</td>
+                  <td>{m.runs.reduce((a, x) => a + x.web_search_calls, 0)}</td><td>{m.runs_total !== null ? usd(m.runs_total) : '–'}</td></tr></tfoot>
+              </table>
+            )}
+            <p className="hint">Results reused from the run log cost nothing and aren't counted.</p>
           </section>
           <section className="panel">
             <h2>This run</h2>
@@ -85,9 +102,15 @@ export function Method({ vid }: { vid: string }) {
             </>}
           </section>
         </div>
-        <section className="panel">
-          <h2>Limitations</h2>
-          <div className="lim">{LIMITS.map(([b, p]) => <div key={b}><b>{b}</b><p>{p}</p></div>)}</div>
+        <section className="panel static">
+          <div>
+            <h2>How it works</h2>
+            <ol className="flow">{STEPS.map(([b, p]) => <li key={b}><div><b>{b}</b><p>{p}</p></div></li>)}</ol>
+          </div>
+          <div>
+            <h2>Limitations</h2>
+            <div className="lim">{LIMITS.map(([b, p]) => <div key={b}><b>{b}</b><p>{p}</p></div>)}</div>
+          </div>
         </section>
       </main>
     </VersionShell>

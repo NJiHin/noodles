@@ -6,6 +6,6 @@ const api = process.env.NOODLES_API ?? 'http://127.0.0.1:8000'
 export default defineConfig({
   plugins: [react()],
   server: {
-    proxy: Object.fromEntries(['/courses', '/versions', '/files', '/runs'].map((p) => [p, api])),
+    proxy: Object.fromEntries(['/courses', '/versions', '/files', '/runs', '/progress'].map((p) => [p, api])),
   },
 })

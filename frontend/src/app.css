@@ -165,3 +165,43 @@ table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: to
 .spin { width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }
+
+.head-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+
+/* confirm dialog: in like the page viewer (fade, scale .97 -> 1, 200ms), out faster (150ms) */
+.confirm, .confirm::backdrop { transition: opacity 150ms ease-out, transform 150ms ease-out, overlay 150ms allow-discrete, display 150ms allow-discrete; }
+.confirm:not([open]) { opacity: 0; transform: scale(.97); }
+.confirm:not([open])::backdrop { opacity: 0; }
+.confirm[open], .confirm[open]::backdrop { transition-duration: 200ms; transition-timing-function: var(--ease-out); }
+@starting-style { .confirm[open] { opacity: 0; transform: scale(.97); } .confirm[open]::backdrop { opacity: 0; } }
+/* notices and the add-files panel arrive with a short fade and drop */
+.notice, .appear { transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+@starting-style { .notice, .appear { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) {
+  .confirm:not([open]) { transform: none; }
+  @starting-style { .confirm[open] { transform: none; } .notice, .appear { transform: none; } }
+}
+
+/* run progress as steps: hollow dots fill as each agent action finishes; the action is named under its dot */
+.steps-run { list-style: none; padding: 0; margin: 18px 0 4px; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; }
+.steps-run li { position: relative; display: grid; justify-items: center; align-content: start; gap: 8px; text-align: center; font-size: 12.5px; color: var(--ink-3); padding: 0 6px; }
+.steps-run li::before { content: ""; position: absolute; top: 7px; left: -50%; right: 50%; height: 2px; background: var(--line); transition: background-color 200ms ease; }
+.steps-run li:first-child::before { display: none; }
+.steps-run li.done::before, .steps-run li.now::before { background: var(--accent); }
+.steps-run .dot { position: relative; z-index: 1; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--line); background: var(--surface); transition: background-color 200ms ease, border-color 200ms ease; }
+.steps-run li.done .dot { background: var(--accent); border-color: var(--accent); }
+.steps-run li.now .dot { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-t); }
+.steps-run li.done, .steps-run li.now { color: var(--ink); }
+.steps-run li.now { font-weight: 600; }
+.steps-run small { display: block; font-weight: 400; color: var(--ink-3); }
+.side-div { border: 0; border-top: 1px solid var(--line); margin: 8px 10px; }
+
+/* assessments: each one collapses under its title */
+.a-toggle { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.a-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.a-toggle .chev { display: inline-block; width: 12px; color: var(--ink-3); transition: transform 200ms var(--ease-out); }
+.a-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.a-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 200ms var(--ease-out); }
+.a-body.open { grid-template-rows: 1fr; }
+.a-body > div { overflow: hidden; min-height: 0; }
+@media (prefers-reduced-motion: reduce) { .a-body, .a-toggle .chev { transition: none; } }

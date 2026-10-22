@@ -173,3 +173,10 @@ def test_confirm_refused_while_map_run_running(client, version):
     finally:
         gate.set()
     assert wait_run(client, run)["status"] == "done"
+
+
+def test_map_run_lists_its_steps(client, version):
+    run = run_map(client, version)  # three weeks: one extraction per week, then the merge
+    assert run["steps"] == ["Extract topics from week 1", "Extract topics from week 2", "Extract topics from week 3",
+                            "Merge topics across weeks"]
+    assert run["steps_done"] == 4

@@ -51,3 +51,24 @@ def test_prices_not_set_gives_no_total(client, target, monkeypatch):
     drive(client, target)
     c = method(client, target)["cost"]
     assert c["total"] is None and c["by_type"]["student"]["input_tokens"] == 400
+
+
+def test_method_lists_every_run_of_the_course_with_its_cost(client, target):
+    first = drive(client, target)["run_id"]
+    v2 = course(client, "CS2030", {**PAGES, 2: "Loops run a block of code again while a condition holds."})
+    assess(client, v2)
+    second = drive(client, v2)["run_id"]
+    m = method(client, v2)
+    runs = m["runs"]
+    assert [r["kind"] for r in runs] == ["split", "test_drive", "split", "test_drive"]  # every version, oldest first
+    assert runs[1]["run_id"] == first and runs[3]["run_id"] == second and runs[1]["questions"] == 2  # the code question is not run
+    assert runs[0]["assessment_id"] == "quiz" and runs[1]["new_calls"] > 0
+    assert m["runs_total"] == pytest.approx(sum(r["cost"] for r in runs))
+    assert runs[3]["cost"] == pytest.approx(m["cost"]["total"])
+
+
+def test_runs_total_unknown_while_a_price_is_missing(client, target, monkeypatch):
+    drive(client, target)
+    monkeypatch.setattr(cost, "PRICES", {})
+    m = method(client, target)
+    assert m["runs_total"] is None and all(r["cost"] is None for r in m["runs"] if r["new_calls"])

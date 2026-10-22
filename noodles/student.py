@@ -20,7 +20,7 @@ from noodles.grounding import ground
 from noodles.web import mark, question_text, web_agent
 from noodles.llm import LUNA, Run, add_usage
 
-STUDENT_V, RECHECK_V = "student-v7", "recheck-v1"  # v7: calculator says how to recover from a failed expression
+STUDENT_V, RECHECK_V = "student-v9", "recheck-v1"  # v9: the bare-answer line names final_answer, so steps are still listed
 MAX_LOOKUPS, RECHECK_HITS, MAX_CALCS = 5, 3, 30
 Source = Literal["course", "prerequisite", "assumed_knowledge", "none"]
 ASSESSMENT_TABLES = {"assessments", "assessment_files", "questions"}
@@ -115,7 +115,7 @@ Answer the exam question concisely, as in an exam. List the steps of your answer
 - "none": subject knowledge the answer needs that you wouldn't already know and can't find in the course or prerequisite materials. Example: "Memoisation caches results." when no passage covers memoisation.
 Use "prerequisite" whenever the material exists there; use "assumed_knowledge" only when it doesn't. When unsure between "assumed_knowledge" and "none", choose "none".
 Cite only passage IDs you were shown. Leave evidence empty for "assumed_knowledge" and "none", and reason and accepted_id null unless stated below.
-If you can't attempt the question, set final_answer to null and still list the steps you managed.
+final_answer is the answer alone, with no explanation: your reasoning belongs in the steps. If you can't attempt the question, set final_answer to null and still list the steps you managed.
 
 {decided}Use the calculate tool for every calculation instead of working it out yourself, as you would use a calculator in the exam.
 To read the materials, call lookup_concept with the IDs of the topics you need (at most {max} calls; zero is fine). It returns every passage tagged with those topics. The topics you have been taught:

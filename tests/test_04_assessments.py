@@ -153,3 +153,11 @@ def test_context_kept_per_question_and_checked_against_the_paper(client, version
         {k: q[k] for k in ("question_id", "context", "text", "options", "type", "marking_material")} for q in a["questions"]]})
     assert r.status_code == 200, r.text
     assert assessment(client, version, "quiz-2")["questions"][0]["context"] == "Data that is not on the paper."
+
+
+def test_split_run_lists_its_steps(client, version, split):
+    add(client, version)
+    a = assessment(client, version, "midterm")
+    assert a["run"]["steps"] == ["Read the paper", "Read the answers", "Split into questions"] and a["run"]["steps_done"] == 3
+    add(client, version, name="Quiz", answers=None)
+    assert assessment(client, version, "quiz")["run"]["steps"] == ["Read the paper", "Split into questions"]

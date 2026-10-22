@@ -75,3 +75,25 @@ def test_override_changes_exposure_and_persists(client, target):
     assert q["marks"]["web"]["verdict"] == "incorrect" and q["marks"]["web"]["overridden"] == "correct"
     assert client.put(f"/runs/{run}/overrides/quiz-q1/web", json={"verdict": "wrong"}).status_code == 422
     assert client.put(f"/runs/{run}/overrides/quiz-q9/web", json={"verdict": "correct"}).status_code == 404
+
+
+def test_true_false_marked_near_exact_and_unclear_flagged(client):
+    vid = course(client, "CS2030", PAGES)
+    tf = [{"question_id": "1", "text": "Loops repeat a block of code.", "options": None, "type": "true_false", "marking_material": "T"},
+          {"question_id": "2", "text": "Which keyword exits a loop early?", "options": ["break", "stop"], "type": "mcq", "marking_material": "A"}]
+    assess(client, vid, questions=tf)
+    fake(client).handlers["StudentAnswer"] = lambda m, t: answer([], "True. Loops repeat a block.")
+    fake(client).handlers["WebAnswer"] = lambda m: {"final_answer": "**True.** ([example.org](https://example.org/a))", "sources": []}
+    assert drive(client, vid)["status"] == "done"
+    q = review(client, vid)["quiz-q1"]
+    assert q["marks"]["web"]["verdict"] == "correct" and not q["marks"]["web"].get("unclear")
+    s = q["marks"]["student"]
+    assert s["verdict"] == "incorrect" and s["unclear"] is True and "True or False" in s["reason"]
+    s = review(client, vid)["quiz-q2"]["marks"]["student"]  # MCQ: "True. Loops…" is no option either
+    assert s["unclear"] is True and "option" in s["reason"]
+
+
+def test_true_false_question_says_how_to_answer(client):
+    from noodles.web import question_text
+    assert question_text({"context": None, "text": "Loops repeat.", "options": None, "type": "true_false"}).endswith(
+        'final_answer: only "True" or "False".')

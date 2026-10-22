@@ -43,7 +43,7 @@ This file is the single source of truth for the design.
 The professor uploads all their files. The week for each file is guessed from its filename, and the professor confirms it. Assessments are uploaded with their answers or marking material, and the professor states which weeks each one covers (its `week_cutoff`) and its `current_format`.
 
 - **Upload together:** the upload screen tells the professor to select all the course's files in one upload.
-- **Adding files to a course:** a missed or corrected file is added from the course's row on the home screen, into the course's latest version (the version changes in place; no new version):
+- **Adding files to a course:** a missed or corrected file is added from the materials screen of the course's latest version (an "Add files" button there), into that version (the version changes in place; no new version):
   - The professor confirms the week of each added file, as on upload. Only the added files are converted, parsed and transcribed.
   - A file with the same name as one already in the version replaces it: its pages, and any text corrections on them, are replaced.
   - Everything else stays: other files' pages and corrections, the confirmed map, assessments and their confirmed questions, and earlier test-drive results.
@@ -153,7 +153,9 @@ Calculating these on demand keeps them in step with the map after a professor co
 - **Web agent:** runs once. LLM with web search, standing in for a student using AI to answer.
 - **Grounding checker:** a code check, then an isolated LLM call. Verifies `course` and `prerequisite` steps only.
 - **Marker:** gives each final answer a verdict (`correct` / `partial` / `incorrect`) and a one-line reason. Marking only feeds the exposure table. Coverage and grounding don't depend on it.
-  - **Multiple choice and true/false:** exact match in code.
+  - **Multiple choice and true/false:** exact match in code. Every agent sees "final_answer: only the option letter." or "final_answer: only \"True\" or \"False\"." after the question (naming the field matters: "Answer only …" made the student drop its steps), and its prompt keeps explanations out of `final_answer`.
+    - Matching ignores case, punctuation, markdown and link citations; an option's letter and its text count as the same answer.
+    - An answer in no allowed form is marked `incorrect` with `unclear: true`. Assessment review shows it as "Check answer" so the reviewer overrides the verdict. No retry.
   - **Short answer, numeric and open-ended:** an LLM marker. It sees the question, the professor's marking material and one final answer. It doesn't see the steps, and it doesn't know which agent wrote the answer.
   - **Phrasing bias, handled without engineering:**
     - the marker accepts the professor's existing marking material in any format (model answer, rubric, marking scheme), passed through as is with no restructuring
@@ -329,7 +331,7 @@ Combined in code from the stage 2 and 3 outputs and the course map:
 - Results are never stored as a separate report: the assessment review, the summary and the coverage panel are recomputed from the runs each time they load, so any rerun shows up on the next load with nothing to regenerate.
 - Each question shows its latest result across the version's runs, so after a per-question rerun the report mixes results from different runs.
 - The "results outdated" notice (Stage 0, "Adding files to a course") is therefore counted per question: e.g. "4 of 6 questions are from before Lecture2.pdf was added".
-- **Open:** the method page reports one run's facts and cost; with per-question reruns it either shows the latest run only or sums the runs behind the current results.
+- The method page shows the latest run's facts and cost, and every run of the course (all versions: course maps, question splits, test-drives) with its new calls, web searches and cost, and their total.
 
 **Implementation:**
 - Plain Python with `asyncio` and the OpenAI SDK.

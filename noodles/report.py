@@ -139,7 +139,7 @@ def topic_coverage(concepts: list[dict], questions: list[dict]) -> dict:
         topics.append({"concept_id": c["concept_id"], "name": c["name"], "first_week": min((o["week"] for o in c["occurrences"]), default=None),
                        "depths": {str(o["week"]): o["depth"] for o in c["occurrences"]},
                        "questions": [q["question_id"] for q in questions if q["question_id"] in used],
-                       "mentioned": mentioned,
+                       "mentioned": mentioned, "cited": used,  # question -> the passages it cited for this topic
                        "finding": "only_mentioned" if mentioned else None if used else "not_assessed"})
     weeks = sorted({o["week"] for c in concepts for o in c["occurrences"]} | {q["week_cutoff"] for q in questions})
     return {"weeks": list(range(1, max(weeks) + 1)) if weeks else [],

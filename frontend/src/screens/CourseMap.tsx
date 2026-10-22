@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
+import { animated, vtName } from '../animated'
 import { api, post } from '../api'
 import { PageLink } from '../PageViewer'
 import { RunProgress } from '../RunProgress'
@@ -27,12 +27,6 @@ function merge(into: Concept, from: Concept): Concept {
     }
   }
   return { ...into, aliases, occurrences: [...weeks.values()].sort((a, b) => a.week - b.week) }
-}
-
-/** Applies a list change inside a view transition where the browser has one, so removed rows fade and the rest slide up. */
-function animated(update: () => void) {
-  if (!document.startViewTransition) return update()
-  document.startViewTransition(() => flushSync(update))
 }
 
 /** Run extraction, watch it, then review the course map as a topic × week grid, correct topics in the side panel, and confirm. */
@@ -197,7 +191,7 @@ export function CourseMap({ vid }: { vid: string }) {
                     <div>
                       {g.topics.map((t) => (
                         <div key={t.concept_id} className={`mx-row ${t.concept_id === sel ? 'sel' : ''}`} onClick={() => open(t, null)}
-                          style={{ viewTransitionName: 'cm-' + t.concept_id.replace(/[^\w-]/g, '-') }}>
+                          style={{ viewTransitionName: vtName('cm', t.concept_id) }}>
                           <button className="nm" title={t.name}>{t.name}</button>
                           {weeks.map((w) => {
                             const o = t.occurrences.find((x) => x.week === w)

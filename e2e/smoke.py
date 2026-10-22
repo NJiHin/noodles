@@ -226,6 +226,13 @@ def slice08(page: Page, tmp: Path) -> None:
     expect(page.locator(".actions b", has_text="Fix coverage first")).to_be_visible()
     expect(page.locator(".cell.good .chip", has_text="Q1")).to_be_visible()  # overridden in slice 07: web wrong
     expect(page.get_by_role("heading", name="By assessment")).to_have_count(0)  # repeated the actions and the grid
+    page.get_by_role("link", name="Assessment review").click()
+    page.get_by_role("button", name="Week", exact=True).click()
+    expect(page.locator(".group", has_text="Covers weeks 1 to 2")).to_be_visible()
+    expect(page.locator(".item .wgrid").first).to_be_visible()
+    shot(page, "08-review-by-week")
+    page.get_by_role("button", name="Recommendation").click()
+    page.get_by_role("link", name="Summary").click()
     shot(page, "08-summary")
     page.locator(".actions .chip").first.click()
     expect(page.get_by_role("heading", name="The student's steps")).to_be_visible()
@@ -303,11 +310,13 @@ def slice11(page: Page, tmp: Path) -> None:
 
 
 def slice12(page: Page, tmp: Path) -> None:
-    """Method steps, this run's facts (prices unset under the fake: token counts instead of dollars), limitations."""
+    """Method steps, this run's facts and cost in dollars, every run of the course, limitations."""
     page.get_by_role("link", name="Method and limitations").click()
     expect(page.get_by_role("heading", name="How it works")).to_be_visible()
     expect(page.get_by_text("Rerun this time")).to_be_visible()
-    expect(page.get_by_text("Prices not set")).to_be_visible()
+    expect(page.locator(".method dd", has_text="US$")).to_be_visible()  # priced from OpenAI's pricing page
+    expect(page.get_by_role("heading", name="All runs for CS1010")).to_be_visible()
+    expect(page.locator("table.runs tbody tr").first).to_be_visible()
     expect(page.get_by_text("One attempt per question.")).to_be_visible()
     shot(page, "12-method")
 
@@ -320,17 +329,16 @@ def slice13(page: Page, tmp: Path) -> None:
     (tmp / "add").mkdir()
     (tmp / "add" / "Week03_Recursion.pdf").write_bytes(make_pdf(["Recursion solves a problem by calling itself on smaller input."]))
     (tmp / "add" / replaced).write_bytes(make_pdf(["Revised notes: variables hold values a program can change."]))
-    page.goto(f"http://127.0.0.1:{WEB}/#/")
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{vid}/materials")
     with page.expect_file_chooser() as fc:
-        page.locator("li", has_text=vid).get_by_role("button", name="Add files").click()
+        page.get_by_role("button", name="Add files").click()
     fc.value.set_files([tmp / "add" / "Week03_Recursion.pdf", tmp / "add" / replaced])
     expect(page.get_by_role("heading", name="Add files to CS1010")).to_be_visible()
     expect(page.locator(".t .rep")).to_contain_text(f"replaces {replaced}")
     shot(page, "13-home-add-files")
     page.get_by_role("button", name="Add to course").click()
-    expect(page.get_by_role("heading", name="Materials")).to_be_visible(timeout=30_000)
-    assert vid in page.url
-    expect(page.locator(".notice.info")).to_contain_text("Week03_Recursion.pdf")
+    expect(page.locator(".notice.info")).to_contain_text("Week03_Recursion.pdf", timeout=30_000)
+    expect(page.locator(".file", has_text="Week03_Recursion.pdf")).to_be_visible()
     page.get_by_role("link", name="Course map").click()
     expect(page.locator(".notice.warn")).to_contain_text("after this map was built")
     shot(page, "13-map-outdated")

@@ -117,13 +117,20 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
         out = {"run_id": cfg["run_id"], "kind": cfg["kind"], "version": cfg["version"], "status": status,
                "error": end and end["error"], "started_at": cfg["started_at"], "ended_at": end and end["ended_at"],
                "done": len(calls), "total": None, "stage": ""}
+        # steps: the agent actions shown as dots in the progress view, of which steps_done are finished
         if cfg["kind"] == "split":
-            out |= {"total": 1, "stage": "Splitting the paper into questions"}
+            steps = ["Read the paper"] + (["Read the answers"] if cfg.get("answers", True) else []) + ["Split into questions"]
+            out |= {"total": 1, "stage": "Splitting the paper into questions",
+                    "steps": steps, "steps_done": len(steps) - 1 + bool(calls)}  # the files are read before the run starts
         if cfg["kind"] == "map":
             n = len(cfg["weeks"])
             extracted = sum(r["call_type"] == "extractor" for r in calls)
+            short = n > 4  # long labels crowd a row of more than five dots
             out |= {"total": n + 1, "stage": f"Extracting topics, week {min(extracted + 1, n)} of {n}" if extracted < n
-                    else "Merging topics across weeks"}
+                    else "Merging topics across weeks",
+                    "steps": [f"Week {w}" if short else f"Extract topics from week {w}" for w in cfg["weeks"]]
+                    + ["Merge" if short else "Merge topics across weeks"],
+                    "steps_done": min(extracted, n) + any(r["call_type"] == "orchestrator" for r in calls)}
         if cfg["kind"] == "test_drive":
             answered = sum(r["type"] == "answer" for r in recs)
             out |= {"done": answered, "total": len(cfg["questions"]),
@@ -244,7 +251,7 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             c.executemany("INSERT INTO assessment_files (version_id, assessment_id, kind, filename, text) VALUES (?, ?, ?, ?, ?)",
                           [(vid, aid, k, fn, t) for k, (fn, t) in texts.items()])
         paper_text, answers_text = texts["paper"][1], texts.get("answers", (None, None))[1]
-        run_id = start_job(code, vid, {"kind": "split", "assessment_id": aid},
+        run_id = start_job(code, vid, {"kind": "split", "assessment_id": aid, "answers": "answers" in texts},
                            lambda run, c: split(run, aid, paper_text, answers_text))
         return {"assessment_id": aid, "run_id": run_id}
 
@@ -344,7 +351,23 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                                  "questions": qs[0], "assessments": qs[1], "assessed": len(recs[0]["questions"]),
                                  "rerun": len({r["question_id"] for r in calls if not r["cached"] and r["question_id"]}),
                                  "models": sorted({r["model"] for r in calls})},
-                "cost": run_cost(recs)}
+                "cost": run_cost(recs), **course_runs(v["course_code"])}
+
+    def course_runs(code: str) -> dict:
+        """Every run of the course (all versions), oldest first, with its new calls and cost; the total is None
+        while a price is missing."""
+        runs = []
+        for p in sorted((runs_dir / code).glob("*/*.jsonl")):
+            recs = read_log(p)
+            c = run_cost(recs)
+            runs.append({"run_id": recs[0]["run_id"], "kind": recs[0]["kind"], "version_id": recs[0]["version"],
+                         "started_at": recs[0]["started_at"], "assessment_id": recs[0].get("assessment_id"),
+                         "questions": len(recs[0].get("questions") or []),
+                         "new_calls": sum(t["calls"] for t in c["by_type"].values()),
+                         "web_search_calls": c["web_search_calls"], "cost": c["total"]})
+        runs.sort(key=lambda r: r["run_id"])  # run IDs start with their UTC start time
+        costs = [r["cost"] for r in runs]
+        return {"runs": runs, "runs_total": None if None in costs else sum(costs)}
 
     @app.get("/versions/{vid}/changes")
     def get_changes(vid: str):
@@ -424,11 +447,15 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
         with conn() as c:
             concepts = load_map(c, vid)
         thin: dict[str, list[dict]] = {}
+        tested: dict[str, set[tuple]] = {}  # question -> (week, topic) from its cited passages of this course
         for t in topic_coverage(concepts, questions)["topics"]:
             for m in t["mentioned"]:
                 thin.setdefault(m["question_id"], []).append({"concept_id": t["concept_id"], "name": t["name"], **m})
+            for qid, cited in t["cited"].items():
+                tested.setdefault(qid, set()).update((p["week"], t["concept_id"], t["name"]) for p in cited if p["version_id"] == vid)
         for q in questions:
             q["only_mentioned"] = thin.get(q["question_id"], [])
+            q["topics"] = [{"week": w, "concept_id": c, "name": n} for w, c, n in sorted(tested.get(q["question_id"], ()))]
         return {"course_code": code, "run": run_status(path) if path else None,
                 "prerequisite": cfg.get("prerequisite_course"), "questions": questions}
 

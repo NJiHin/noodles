@@ -9,7 +9,8 @@ export function ConfirmDialog({ title, children, action, typeToConfirm, onConfir
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  useEffect(() => { ref.current?.showModal() }, [])
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => { ref.current?.showModal(); return () => clearTimeout(closeTimer.current) }, [])
 
   async function confirm() {
     setErr(''); setBusy(true)
@@ -17,7 +18,7 @@ export function ConfirmDialog({ title, children, action, typeToConfirm, onConfir
   }
 
   return (
-    <dialog className="confirm" ref={ref} onClose={onClose}>
+    <dialog className="confirm" ref={ref} onClose={() => { closeTimer.current = setTimeout(onClose, 150) }}>{/* unmount after the exit transition */}
       <h2>{title}</h2>
       <p>{children}</p>
       {typeToConfirm && (

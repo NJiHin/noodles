@@ -88,3 +88,14 @@ def test_week_for_file_not_uploaded_rejected(client):
     r = client.post("/courses/CS1010/versions",
                     json={"upload_id": up["upload_id"], "weeks": {"notes.pdf": 1, "gone.pdf": 2}})
     assert r.status_code == 422
+
+
+def test_dev_proxy_forwards_every_api_route(app):
+    """Vite only proxies the listed prefixes; a route outside them gets the app's HTML in dev (as /progress once did)."""
+    import re
+    from pathlib import Path
+    config = (Path(__file__).parents[1] / "frontend" / "vite.config.ts").read_text()
+    proxied = set(re.findall(r"'(/[a-z-]+)'", config.split("proxy")[1]))
+    prefixes = {"/" + r.path.split("/")[1] for r in app.routes if getattr(r, "endpoint", None)
+                and r.endpoint.__module__ == "noodles.api"}  # the app's own routes, not FastAPI's /docs
+    assert prefixes <= proxied, prefixes - proxied

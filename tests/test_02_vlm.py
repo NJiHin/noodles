@@ -255,3 +255,25 @@ def test_assessment_reading_reports_progress(tmp_path, two_pages):
                    files=[("paper", ("Quiz.pdf", two_pages)), ("answers", ("Ans.pdf", two_pages))])
         assert r.status_code == 200, r.text
         assert seen == [{"Quiz.pdf": {"done": 0, "total": 1}}, {"Quiz.pdf": {"done": 1, "total": 1}, "Ans.pdf": {"done": 0, "total": 1}}]
+
+
+def test_adding_files_reports_progress(tmp_path, two_pages):
+    from fastapi.testclient import TestClient
+
+    from conftest import ingest, upload
+    from noodles.api import create_app
+    seen = []
+
+    class Spy:  # reads the progress endpoint while each flagged page of the added file is transcribed
+        def transcribe(self, png):
+            if adding:
+                seen.append(c.get(f"/progress/{up['upload_id']}").json())
+            return "# Page"
+
+    adding = False
+    with TestClient(create_app(tmp_path / "d", tmp_path / "r", ollama=Spy())) as c:
+        v = ingest(c, "CS1010", [("w1.pdf", two_pages)], {"w1.pdf": 1})
+        up = upload(c, "CS1010", [("w2.pdf", two_pages)])
+        adding = True
+        assert c.post(f"/versions/{v}/files", json={"upload_id": up["upload_id"], "weeks": {"w2.pdf": 2}}).status_code == 200
+        assert seen == [{"w2.pdf": {"done": 0, "total": 1}}]

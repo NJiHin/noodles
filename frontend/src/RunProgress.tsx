@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { api } from './api'
 import type { RunStatus } from './types'
 
-/** Polls a background run and shows its stage; calls onEnd once it stops running. */
+/** Polls a background run and shows its progress (one dot per agent action when the run lists them, else a bar);
+ * calls onEnd once it stops running. */
 export function RunProgress({ runId, onEnd }: { runId: string; onEnd: (r: RunStatus) => void }) {
   const [r, setR] = useState<RunStatus | null>(null)
   useEffect(() => {
@@ -18,6 +19,14 @@ export function RunProgress({ runId, onEnd }: { runId: string; onEnd: (r: RunSta
     return () => { stop = true }
   }, [runId]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!r) return <p className="muted">Starting…</p>
+  if (r.steps) return (
+    <ol className="steps-run" aria-label={r.stage}>
+      {r.steps.map((s, i) => {
+        const state = i < r.steps_done! ? 'done' : i === r.steps_done ? 'now' : ''
+        return <li key={i} className={state}><span className="dot" /><span>{s}{state === 'now' && <small>in progress</small>}</span></li>
+      })}
+    </ol>
+  )
   const pct = r.total ? Math.round((100 * r.done) / r.total) : 0
   return (
     <div className="progress">

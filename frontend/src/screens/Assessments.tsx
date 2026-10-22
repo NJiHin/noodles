@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { FileStatus, activeFile, useProgress } from '../FileProgress'
+import { animated, vtName } from '../animated'
 import { ConfirmDialog } from '../ConfirmDialog'
 import { RunProgress } from '../RunProgress'
 import { VersionShell } from '../Shell'
@@ -68,16 +69,18 @@ export function Assessments({ vid }: { vid: string }) {
           {err && <p className="err">{err}</p>}
         </section>
 
-        {list?.map((a) => <AssessmentPanel key={`${a.assessment_id}-${a.state}-${a.run?.run_id ?? ''}`} vid={vid} a={a} reload={load} />)}
+        {list?.map((a) => <AssessmentPanel key={`${a.assessment_id}-${a.state}-${a.run?.run_id ?? ''}`} vid={vid} a={a} reload={load}
+          deleted={() => { animated(() => setList((l) => l && l.filter((x) => x.assessment_id !== a.assessment_id))); load() }} />)}
       </main>
     </VersionShell>
   )
 }
 
-function AssessmentPanel({ vid, a, reload }: { vid: string; a: Assessment; reload: () => void }) {
+function AssessmentPanel({ vid, a, reload, deleted }: { vid: string; a: Assessment; reload: () => void; deleted: () => void }) {
   const [qs, setQs] = useState<Question[]>(a.questions)
   const [err, setErr] = useState('')
   const [deleting, setDeleting] = useState(false)
+  const [open, setOpen] = useState(a.state !== 'confirmed')  // confirmed ones start collapsed
   const set = (i: number, q: Partial<Question>) => setQs(qs.map((x, j) => (j === i ? { ...x, ...q } : x)))
   const label = (q: Question) => q.question_id.replace(`${a.assessment_id}-`, '')
   // questions with identical context share one box, shown before the first of them; saving it rewrites all of them
@@ -97,10 +100,10 @@ function AssessmentPanel({ vid, a, reload }: { vid: string; a: Assessment; reloa
 
   const flagged = qs.filter((q) => q.flags?.length).length
   return (
-    <section className="panel">
+    <section className="panel" style={{ viewTransitionName: vtName('a', a.assessment_id) }}>
       <div className="a-head">
         <div>
-          <h2>{a.assessment_id}</h2>
+          <h2><button className="a-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><span className="chev">›</span>{a.assessment_id}</button></h2>
           <p className="hint">Weeks 1 to {a.week_cutoff} · {FORMAT_LABEL[a.current_format]} · {Object.values(a.files).join(', ')}{!a.files.answers && ' · no answers file'}</p>
         </div>
         {a.state === 'confirmed' && <span className="v ok">Confirmed, {a.questions.length} questions</span>}
@@ -110,10 +113,11 @@ function AssessmentPanel({ vid, a, reload }: { vid: string; a: Assessment; reloa
       </div>
       {deleting && (
         <ConfirmDialog title={`Delete ${a.assessment_id}?`} action="Delete assessment" onClose={() => setDeleting(false)}
-          onConfirm={() => api(`/versions/${vid}/assessments/${a.assessment_id}`, { method: 'DELETE' }).then(reload)}>
+          onConfirm={() => api(`/versions/${vid}/assessments/${a.assessment_id}`, { method: 'DELETE' }).then(deleted)}>
           Its files and {a.questions.length} question{a.questions.length === 1 ? '' : 's'} are removed, so they leave the assessment review and the summary. Earlier test-drive results stay in the run logs.
         </ConfirmDialog>
       )}
+      <div className={`a-body ${open ? 'open' : ''}`} inert={!open}><div>
       {a.state === 'running' && a.run && <RunProgress runId={a.run.run_id} onEnd={reload} />}
       {a.run?.error && a.state !== 'confirmed' && <p className="err">{a.run.error}</p>}
 
@@ -169,6 +173,7 @@ function AssessmentPanel({ vid, a, reload }: { vid: string; a: Assessment; reloa
           </div>
         </>
       )}
+      </div></div>
     </section>
   )
 }

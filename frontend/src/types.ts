@@ -6,6 +6,7 @@ export type PassageRef = { slug: string; page: number; week: number }
 export type RunStatus = {
   run_id: string; kind: string; status: 'running' | 'done' | 'failed' | 'interrupted'; error: string | null
   done: number; total: number | null; stage: string; started_at: string; ended_at: string | null
+  steps?: string[]; steps_done?: number  // agent actions, for map and split runs
 }
 export type QType = 'mcq' | 'true_false' | 'short' | 'numeric' | 'open' | 'code'
 export const QTYPES: QType[] = ['mcq', 'true_false', 'short', 'numeric', 'open', 'code']
@@ -29,9 +30,10 @@ export type ReviewQuestion = {
   recommendation: { key: string; group: string; title: string; text: string; facts: string } | null
   only_mentioned: (Cited & { concept_id: string; name: string; question_id: string; week_cutoff: number })[]
   context: string | null; run_id: string | null; answered_at: string | null; outdated: boolean
+  topics: { week: number; concept_id: string; name: string }[]  // from its cited passages of this course
 }
 export type Verdict = 'correct' | 'partial' | 'incorrect'
-export type Mark = { verdict: Verdict; reason: string; by: 'code' | 'marker'; overridden?: Verdict }
+export type Mark = { verdict: Verdict; reason: string; by: 'code' | 'marker'; overridden?: Verdict; unclear?: boolean }
 export type ReviewResp = { course_code: string; run: RunStatus | null; prerequisite: string | null; questions: ReviewQuestion[] }
 export type Summary = {
   course_code: string; run: RunStatus | null; assessed: number; keep: number; groups: Record<string, number>

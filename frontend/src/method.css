@@ -16,3 +16,10 @@
 .method dd { margin: 0; text-align: right; }
 .method table.cost { margin-top: 16px; font-size: 12.5px; }
 .method table.cost td:not(:first-child), .method table.cost th:not(:first-child) { text-align: right; }
+.method .runs-h { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.method .runs-h span { font-size: 13px; color: var(--ink-2); }
+.method .runs-h b { font-size: 18px; font-weight: 600; color: var(--ink); margin-right: 4px; }
+.method table.runs { font-size: 13px; }
+.method table.runs td:nth-child(n+3), .method table.runs th:nth-child(n+3) { text-align: right; }
+.method table.runs tfoot td { font-weight: 600; border-top: 1px solid var(--ink-3); }
+.method .static { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
