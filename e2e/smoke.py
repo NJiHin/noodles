@@ -53,14 +53,14 @@ def slice01(page: Page, tmp: Path) -> dict:
     # Hold the confirm request and fake one progress reading, so the progress state can be seen.
     held = []
     page.route("**/courses/CS1010/versions", lambda route: held.append(route))
-    page.route("**/progress", lambda route: route.fulfill(json={
+    page.route("**/progress/*", lambda route: route.fulfill(json={
         "Week01_Intro.pdf": {"done": 1, "total": 2}, "L2-loops.docx": {"done": 0, "total": 0}, "reading.pdf": {"done": 0, "total": 1}}))
     page.get_by_role("button", name="Confirm weeks").click()
     expect(page.get_by_role("row", name="Week01_Intro.pdf")).to_contain_text("1/2")
     expect(page.get_by_role("row", name="reading.pdf")).to_contain_text("0/1")
     shot(page, "01-reading-progress")
     held[0].continue_()
-    page.unroute("**/progress")
+    page.unroute("**/progress/*")
     page.unroute("**/courses/CS1010/versions")
     expect(page.get_by_role("heading", name="Materials")).to_be_visible(timeout=120_000)
     expect(page.get_by_text("3 files, 4 pages")).to_be_visible()

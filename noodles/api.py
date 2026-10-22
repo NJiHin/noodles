@@ -69,7 +69,7 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
     app = FastAPI(title="noodles")
     app.state.openai, app.state.db_path = openai, db_path
     tasks: dict[str, asyncio.Task] = {}
-    ingest_progress: dict[str, dict] = {}  # upload_id -> {filename: {done, total}} flagged pages transcribed so far
+    ingest_progress: dict[str, dict] = {}  # upload or progress id -> {filename: {done, total}} flagged pages transcribed so far
 
     @contextmanager
     def conn():
@@ -205,8 +205,12 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
 
     @app.post("/versions/{vid}/assessments")
     async def add_assessment(vid: str, name: str = Form(), week_cutoff: int = Form(), current_format: str = Form(),
-                             paper: UploadFile = Form(), answers: UploadFile | None = Form(None)):
-        """Parse the paper (and answers) into assessment_files, then start the question split."""
+                             paper: UploadFile = Form(), answers: UploadFile | None = Form(None), progress_id: str | None = Form(None)):
+        """Parse the paper (and answers) into assessment_files, then start the question split.
+        With progress_id, /progress/{progress_id} reports each file's transcribed pages while they are read."""
+        def progress(files):  # paper then answers: keep the paper's count when the answers start
+            if progress_id:
+                ingest_progress[progress_id] = {**ingest_progress.get(progress_id, {}), **files}
         if week_cutoff < 1 or current_format not in FORMATS:
             raise HTTPException(422, f"week_cutoff must be 1 or more and current_format one of {', '.join(FORMATS)}")
         aid = slugify(name)
@@ -223,7 +227,7 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
                     src = Path(tmp) / kind / fname
                     src.parent.mkdir()
                     src.write_bytes(await f.read())
-                    texts[kind] = (fname, await asyncio.to_thread(read_document, src, vlm))
+                    texts[kind] = (fname, await asyncio.to_thread(read_document, src, vlm, progress))
                 except IngestError as e:
                     raise HTTPException(422, str(e))
                 except OllamaError as e:
@@ -514,10 +518,11 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
             reading(body, lambda progress: add_files(c, files_dir, vid, staged, body.weeks, vlm, progress))
         return {"version_id": vid}
 
-    @app.get("/courses/{code}/uploads/{upload_id}/progress")
-    def upload_progress(code: str, upload_id: str):
-        """Per file, flagged pages transcribed so far while its confirm runs; empty until the files are parsed."""
-        return ingest_progress.get(upload_id, {})
+    @app.get("/progress/{key}")
+    def reading_progress(key: str):
+        """Per file, flagged pages transcribed so far while an upload's files (key: upload_id) or an assessment's
+        files (key: the progress_id it was sent with) are read; empty until the files are parsed."""
+        return ingest_progress.get(key, {})
 
     @app.get("/versions/{vid}")
     def get_version(vid: str):

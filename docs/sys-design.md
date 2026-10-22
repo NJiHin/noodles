@@ -75,9 +75,11 @@ The professor uploads all their files. The week for each file is guessed from it
 
 **Assessments into questions:**
 1. Assessment and answer files go through the same parsing pipeline, but are written to the separate assessments table (see Course store), never to `passages`.
-2. One LLM call per assessment splits the parsed paper and its answers into question records: question ID, question text, options (if any), type and that question's marking material. Each sub-part (1a, 1b) is its own question.
+2. One LLM call per assessment splits the parsed paper and its answers into question records: question label, context, question text, options (if any), type and that question's marking material. Each sub-part (1a, 1b) is its own question.
+   - **Context:** text the question needs that isn't part of the question itself, such as a scenario, a data table or formulas shared by several questions. The split copies it verbatim into the `context` of every question it applies to; `text` keeps only the question. Each question carries its own copy: there is no shared record to link to, and the rows are written in one batch. The student, web agent and marker see the context, then the question. On the assessments screen, questions with identical context are shown under one context box, and saving it rewrites that context on all of them in one batch; editing one question's context on its own separates it from the group.
+   - **Question ID:** the label printed on the paper when it looks like a question number (e.g. "7", "1a", "Q3", "Question 2(b)"). If the paper prints no such label, the split returns none and code numbers the question by its position in the paper (q1, q2, …), so questions are never named after their content (e.g. a blank labelled "S_x").
 3. Code checks (fail loudly, flag for the professor):
-   - each question's text appears verbatim in the parsed paper
+   - each question's text, and its context, appear verbatim in the parsed paper (checked separately)
    - every question has marking material and every piece of marking material has a question
 4. The professor confirms or corrects the question list before any run, like the week guess.
 
@@ -315,6 +317,12 @@ Combined in code from the stage 2 and 3 outputs and the course map:
    4. the marker runs once per final answer (student and web agent marked in separate calls)
 4. The report is assembled in code.
 
+**Reruns:** a test-drive runs either every confirmed question, or only the questions the professor picks (a per-question rerun from the assessment review). Questions whose inputs haven't changed come from the run log either way, at no cost.
+- Results are never stored as a separate report: the assessment review, the summary and the coverage panel are recomputed from the runs each time they load, so any rerun shows up on the next load with nothing to regenerate.
+- Each question shows its latest result across the version's runs, so after a per-question rerun the report mixes results from different runs.
+- The "results outdated" notice (Stage 0, "Adding files to a course") is therefore counted per question: e.g. "4 of 6 questions are from before Lecture2.pdf was added".
+- **Open:** the method page reports one run's facts and cost; with per-question reruns it either shows the latest run only or sums the runs behind the current results.
+
 **Implementation:**
 - Plain Python with `asyncio` and the OpenAI SDK.
 - No agent framework, because the flow is fixed. The only choice an agent makes is which topics the student looks up, handled by a small tool-call loop in code.
@@ -336,7 +344,7 @@ Combined in code from the stage 2 and 3 outputs and the course map:
 - One JSONL file per run (`runs/<course_code>/<version>/<run_id>.jsonl`). The first line is the run configuration (target version, prerequisite version). Then one record per call: the fingerprint of its inputs, the call type, the question ID, the token usage (and web-search calls) and the full output. Cached results add no cost.
 - Written as each call finishes, so an interrupted run resumes where it stopped.
 - **Fingerprint = a hash of the content the call can see**, plus the prompt version and model. Not the course version, so a call reruns only when its own inputs change:
-  - student agent: the question, the topic list, the decided assumed-knowledge claims, and every passage (text and heading) it could look up, i.e. target weeks 1 to N plus the prerequisite. A map edit changes the topic list and headings, so it reruns.
+  - student agent: the question (with its context), the topic list, the decided assumed-knowledge claims, and every passage (text and heading) it could look up, i.e. target weeks 1 to N plus the prerequisite. A map edit changes the topic list and headings, so it reruns.
   - web agent: the question only
   - re-check: the student's conversation plus the found passages
   - grounding checker: the step and its cited passages
@@ -438,8 +446,9 @@ CREATE TABLE assessment_files (               -- parsed paper and answers, input
 
 CREATE TABLE questions (                      -- output of the split, professor-confirmed
   version_id TEXT NOT NULL,
-  question_id TEXT NOT NULL,                  -- e.g. q07, q07a
+  question_id TEXT NOT NULL,                  -- e.g. q07, q07a; by position (q1, q2) if the paper prints no number
   assessment_id TEXT NOT NULL,
+  context TEXT,                               -- scenario, data or formulas the question needs, copied per question; NULL if none
   text TEXT NOT NULL,
   options TEXT,                               -- JSON array, NULL if none
   type TEXT NOT NULL CHECK (type IN ('mcq', 'true_false', 'short', 'numeric', 'open', 'code')),

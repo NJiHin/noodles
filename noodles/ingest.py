@@ -301,10 +301,9 @@ def add_files(conn: sqlite3.Connection, files_dir: Path, vid: str, staged: list[
         shutil.rmtree(work, ignore_errors=True)
 
 
-def read_document(src: Path, vlm) -> str:
-    """One file's text through the same pipeline (convert, parse, transcribe flagged pages), pages joined."""
+def read_document(src: Path, vlm, progress) -> str:
+    """One file's text through the same pipeline (convert, parse, transcribe flagged pages), pages joined.
+    progress({filename: {"done", "total"}}) as its flagged pages are transcribed."""
     with tempfile.TemporaryDirectory() as tmp:
-        pdf = Path(tmp) / "doc.pdf"
-        to_pdf(src, pdf)
-        pages = transcribe_flagged(pdf, parse_pdfs([pdf])[pdf], vlm)
+        [pages] = read_files([src], [Path(tmp) / "doc.pdf"], vlm, progress)
     return "\n\n".join(text for text, _ in pages)

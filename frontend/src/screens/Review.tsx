@@ -70,7 +70,7 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
               <div className="group"><span>{name}</span><span>{g.length}</span></div>
               {g.map(([q, text], i) => (
                 <a key={`${q.question_id}-${i}`} className={`item${q === sel ? ' on' : ''}${q.type === 'code' || q.recommendation?.group === 'Keep as is' ? ' done' : ''}`} href={`#/v/${vid}/review/${q.question_id}`}>
-                  <span className="id">{short(q)}</span><span className="t">{text}</span><span className="wk">{q.assessment_id}{chg[q.question_id] && <span className="chg" title="Since the last run of the previous version">{chg[q.question_id]}</span>}</span>
+                  <span className="id" title={short(q)}>{short(q)}</span><span className="t">{text}</span><span className="wk">{q.assessment_id}{chg[q.question_id] && <span className="chg" title="Since the last run of the previous version">{chg[q.question_id]}</span>}</span>
                 </a>
               ))}
             </div>

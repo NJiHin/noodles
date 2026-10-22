@@ -184,7 +184,7 @@ def test_confirm_reports_transcription_progress(tmp_path, two_pages):
 
     class Spy:  # reads the progress endpoint while each flagged page is being transcribed
         def transcribe(self, png):
-            seen.append(c.get(f"/courses/CS1010/uploads/{up['upload_id']}/progress").json())
+            seen.append(c.get(f"/progress/{up['upload_id']}").json())
             return "# Page"
 
     with TestClient(create_app(tmp_path / "d", tmp_path / "r", ollama=Spy())) as c:
@@ -194,7 +194,7 @@ def test_confirm_reports_transcription_progress(tmp_path, two_pages):
         # per file: pages transcribed out of that file's flagged pages; files are read in order
         assert seen == [{"w1.pdf": {"done": 0, "total": 1}, "w2.pdf": {"done": 0, "total": 1}},
                         {"w1.pdf": {"done": 1, "total": 1}, "w2.pdf": {"done": 0, "total": 1}}]
-        assert c.get(f"/courses/CS1010/uploads/{up['upload_id']}/progress").json() == {
+        assert c.get(f"/progress/{up['upload_id']}").json() == {
             "w1.pdf": {"done": 1, "total": 1}, "w2.pdf": {"done": 1, "total": 1}}
 
 
@@ -233,3 +233,25 @@ def test_model_unloaded_after_every_fifth_transcribed_page(monkeypatch, tmp_path
     for i in range(2, 12):
         vlm.transcribe(f"page {i}".encode())
     assert [i for i, j in enumerate(sent, 1) if j.get("keep_alive") == 0] == [5, 10]
+
+
+def test_assessment_reading_reports_progress(tmp_path, two_pages):
+    from fastapi.testclient import TestClient
+
+    from conftest import ingest
+    from noodles.api import create_app
+    from noodles.fakes import FakeOpenAI
+    seen = []
+
+    class Spy:  # reads the progress endpoint while each flagged page of the paper and answers is transcribed
+        def transcribe(self, png):
+            seen.append(c.get("/progress/p1").json())
+            return "# Page"
+
+    with TestClient(create_app(tmp_path / "d", tmp_path / "r", ollama=Spy(), openai=FakeOpenAI())) as c:
+        v = ingest(c, "CS1010", [("w1.pdf", two_pages)], {"w1.pdf": 1})
+        seen.clear()
+        r = c.post(f"/versions/{v}/assessments", data={"name": "Quiz", "week_cutoff": 1, "current_format": "online_quiz", "progress_id": "p1"},
+                   files=[("paper", ("Quiz.pdf", two_pages)), ("answers", ("Ans.pdf", two_pages))])
+        assert r.status_code == 200, r.text
+        assert seen == [{"Quiz.pdf": {"done": 0, "total": 1}}, {"Quiz.pdf": {"done": 1, "total": 1}, "Ans.pdf": {"done": 0, "total": 1}}]

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
+import { FileStatus, activeFile, useProgress } from '../FileProgress'
 import { RunProgress } from '../RunProgress'
 import { VersionShell } from '../Shell'
 import { FORMAT_LABEL, QTYPES, type Assessment, type Question } from '../types'
@@ -9,6 +10,8 @@ export function Assessments({ vid }: { vid: string }) {
   const [list, setList] = useState<Assessment[] | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [reading, setReading] = useState<{ id: string; files: string[] } | null>(null)  // files being read, for progress
+  const prog = useProgress(reading?.id ?? null)
   const load = () => api<Assessment[]>(`/versions/${vid}/assessments`).then(setList).catch((e) => setErr(e.message))
   useEffect(() => { load() }, [vid]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -17,11 +20,14 @@ export function Assessments({ vid }: { vid: string }) {
     const form = e.currentTarget
     const fd = new FormData(form)
     if (!(fd.get('answers') as File)?.size) fd.delete('answers')
+    const id = crypto.randomUUID()
+    fd.set('progress_id', id)
     setErr(''); setBusy(true)
+    setReading({ id, files: ['paper', 'answers'].map((k) => (fd.get(k) as File | null)?.name).filter((n): n is string => !!n) })
     try {
       await api(`/versions/${vid}/assessments`, { method: 'POST', body: fd })
       form.reset(); await load()
-    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    } catch (e) { setErr((e as Error).message) } finally { setBusy(false); setReading(null) }
   }
 
   return (
@@ -49,6 +55,15 @@ export function Assessments({ vid }: { vid: string }) {
             <label className="field">Answers (optional)<input name="answers" type="file" accept=".pdf,.pptx,.docx" /></label>
             <button className="btn primary" disabled={busy}>{busy ? 'Reading files…' : 'Add'}</button>
           </form>
+          {reading && (
+            <table className="t">
+              <tbody>
+                {reading.files.map((f) => (
+                  <tr key={f}><td>{f}</td><td style={{ width: 110 }}><FileStatus p={prog?.[f]} active={f === activeFile(reading.files, prog)} /></td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           {err && <p className="err">{err}</p>}
         </section>
 
