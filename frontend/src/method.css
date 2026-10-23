@@ -23,3 +23,6 @@
 .method table.runs td:nth-child(n+3), .method table.runs th:nth-child(n+3) { text-align: right; }
 .method table.runs tfoot td { font-weight: 600; border-top: 1px solid var(--ink-3); }
 .method .static { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.method .pager { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 10px; font-size: 12.5px; color: var(--ink-3); }
+.method .pager .btn { width: 28px; padding: 2px 0; font-size: 16px; line-height: 1.2; }
+.method .pager .btn:disabled { opacity: .4; cursor: default; }

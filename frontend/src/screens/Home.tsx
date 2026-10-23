@@ -57,12 +57,14 @@ export function Home() {
         {courses.length > 0 && (
           <section className="panel">
             <h2>Versions</h2>
-            <ul className="list-plain">
+            <ul className="list-plain courses">
               {courses.flatMap((c) => c.versions.map((v, i) => (
                 <li key={v.id} style={{ viewTransitionName: vtName('v', v.id) }}>
                   <a className="q" href={`#/v/${v.id}/materials`}>{c.code}</a>
                   <small>Uploaded {fmtDate(v.created_at)} · {v.id}</small>
-                  {i === 0 && <button className="btn sm danger" disabled={busy || !!up} onClick={() => setDeleting(c)}>Delete course</button>}
+                  {i === 0 && <button className="del-icon" aria-label={`Delete course ${c.code}`} title="Delete course" disabled={busy || !!up} onClick={() => setDeleting(c)}>
+                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.8 6.5v4.5M9.2 6.5v4.5"
+                      fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg></button>}
                 </li>
               )))}
             </ul>

@@ -205,3 +205,14 @@ table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: to
 .a-body.open { grid-template-rows: 1fr; }
 .a-body > div { overflow: hidden; min-height: 0; }
 @media (prefers-reduced-motion: reduce) { .a-body, .a-toggle .chev { transition: none; } }
+.side a.back { color: var(--ink); font-weight: 500; }
+.side a.back ~ a { margin-left: 12px; }
+.side a.back ~ .side-div { margin-left: 22px; }
+/* course rows: the whole row opens the course; delete sits at the right */
+.list-plain.courses li { position: relative; align-items: center; padding: 10px 8px; border-radius: 6px; transition: background 120ms ease-out; }
+.list-plain.courses li:hover { background: var(--bg); }
+.list-plain.courses a.q::after { content: ""; position: absolute; inset: 0; }
+.list-plain.courses a.q:hover { color: var(--ink); }
+.del-icon { position: relative; margin-left: auto; display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 6px; background: none; color: var(--bad); cursor: pointer; }
+.del-icon:hover:not(:disabled) { background: var(--bad-t); }
+.del-icon:disabled { opacity: .4; cursor: default; }

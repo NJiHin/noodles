@@ -40,11 +40,16 @@ const LIMITS: [string, string][] = [
   ["It doesn't detect AI-written work.", 'Nor does it make any assessment AI-proof. Recommendations are advisory; you decide.'],
 ]
 
+const PER_PAGE = 10
+
 /** c6-method: every run of the course with its cost, this run's facts, then how it works and the limitations. */
 export function Method({ vid }: { vid: string }) {
   const [m, setM] = useState<M | null>(null)
   const [err, setErr] = useState('')
+  const [pg, setPg] = useState(0)
   useEffect(() => { api<M>(`/versions/${vid}/method`).then(setM).catch((e) => setErr(e.message)) }, [vid])
+  const runs = m ? [...m.runs].reverse() : []  // newest first, so the first page is the latest runs
+  const pages = Math.ceil(runs.length / PER_PAGE)
   const r = m?.run
   const c = m?.cost
   const tokens = c ? Object.values(c.by_type).reduce((a, t) => a + t.input_tokens + t.output_tokens, 0) : 0
@@ -65,13 +70,18 @@ export function Method({ vid }: { vid: string }) {
             {m && m.runs.length > 0 && (
               <table className="t runs">
                 <thead><tr><th>When</th><th>Run</th><th>Questions</th><th>New calls</th><th>Web searches</th><th>Cost</th></tr></thead>
-                <tbody>{m.runs.map((x) => (
+                <tbody>{runs.slice(pg * PER_PAGE, (pg + 1) * PER_PAGE).map((x) => (
                   <tr key={x.run_id}><td>{when(x.started_at)}</td><td>{KIND[x.kind] ?? x.kind}{x.assessment_id && `, ${x.assessment_id}`}</td>
                     <td>{x.questions || '—'}</td><td>{x.new_calls}</td><td>{x.web_search_calls}</td><td>{x.new_calls === 0 ? '—' : x.cost !== null ? usd(x.cost) : '–'}</td></tr>
                 ))}</tbody>
                 <tfoot><tr><td colSpan={3}>Total</td><td>{m.runs.reduce((a, x) => a + x.new_calls, 0)}</td>
                   <td>{m.runs.reduce((a, x) => a + x.web_search_calls, 0)}</td><td>{m.runs_total !== null ? usd(m.runs_total) : '–'}</td></tr></tfoot>
               </table>
+            )}
+            {pages > 1 && (
+              <div className="pager"><span>{pg * PER_PAGE + 1}–{Math.min((pg + 1) * PER_PAGE, runs.length)} of {runs.length}</span>
+                <button className="btn sm" aria-label="Newer runs" disabled={pg === 0} onClick={() => setPg(pg - 1)}>‹</button>
+                <button className="btn sm" aria-label="Older runs" disabled={pg === pages - 1} onClick={() => setPg(pg + 1)}>›</button></div>
             )}
             <p className="hint">Results reused from the run log cost nothing and aren't counted.</p>
           </section>

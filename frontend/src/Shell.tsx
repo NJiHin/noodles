@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { api } from './api'
 
-export type Nav = { label: string; href: string; on?: boolean; n?: number; divider?: boolean }  // divider: a line above it
+export type Nav = { label: string; href: string; on?: boolean; n?: number; divider?: boolean; back?: boolean }  // divider: a line above it; back: up a level, the rest indented under it
 
 /** c-shell layout: left section list, then the page. */
 export function Shell({ course, sub, nav, children }: { course: string; sub: string; nav: Nav[]; children: ReactNode }) {
@@ -12,7 +12,7 @@ export function Shell({ course, sub, nav, children }: { course: string; sub: str
         {nav.map((n) => (
           <Fragment key={n.href}>
             {n.divider && <hr className="side-div" />}
-            <a className={n.on ? 'on' : ''} href={n.href}>
+            <a className={[n.on && 'on', n.back && 'back'].filter(Boolean).join(' ')} href={n.href}>
               {n.label}{n.n !== undefined && <span className="n">{n.n}</span>}
             </a>
           </Fragment>
@@ -28,7 +28,7 @@ export const fmtDate = (iso: string) =>
 
 export function versionNav(vid: string, on: string): Nav[] {
   return [
-    { label: 'Courses', href: '#/' },
+    { label: 'Courses', href: '#/', back: true },
     { label: 'Materials', href: `#/v/${vid}/materials` },
     { label: 'Course map', href: `#/v/${vid}/map` },
     { label: 'Assessments', href: `#/v/${vid}/assessments` },
