@@ -12,7 +12,6 @@ from pydantic import BaseModel
 from noodles.llm import LUNA, SOL, Run
 
 Depth = Literal["mentioned", "explained", "worked_example", "practised"]
-DEPTHS = ["mentioned", "explained", "worked_example", "practised"]
 EXTRACT_V, ORCH_V = "extract-v1", "orchestrate-v1"
 
 

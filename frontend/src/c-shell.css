@@ -39,7 +39,6 @@ body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); wid
 .v.bad { background: var(--bad-t); color: var(--bad); }
 .v.part { background: var(--warn-t); color: var(--warn); }
 .v.n { background: #EEF0F3; color: var(--ink-2); }
-.v.ai { background: var(--warn-t); color: var(--warn); }
 
 /* single-pane pages */
 .page { padding: 28px 40px 56px; display: flex; flex-direction: column; gap: 24px; max-width: 1220px; }

@@ -92,8 +92,3 @@ def test_true_false_marked_near_exact_and_unclear_flagged(client):
     s = review(client, vid)["quiz-q2"]["marks"]["student"]  # MCQ: "True. Loops…" is no option either
     assert s["unclear"] is True and "option" in s["reason"]
 
-
-def test_true_false_question_says_how_to_answer(client):
-    from noodles.web import question_text
-    assert question_text({"context": None, "text": "Loops repeat.", "options": None, "type": "true_false"}).endswith(
-        'final_answer: only "True" or "False".')

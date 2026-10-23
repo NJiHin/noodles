@@ -16,6 +16,3 @@
 .changes .file .wk { color: var(--ink-3); font-size: 12.5px; }
 /* changed since the last run: badge in the review list */
 .chg { display: inline-block; margin-left: 6px; font-size: 11.5px; font-weight: 600; color: var(--accent); background: var(--accent-t); border-radius: 999px; padding: 0 6px; vertical-align: 1px; }
-.lp .c.chg { position: relative; }
-.lp .c.chg::after { content: ""; position: absolute; top: 6px; right: calc(50% - 16px); width: 6px; height: 6px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 2px var(--surface); }
-.lp .dotchg { width: 6px; height: 6px; border-radius: 50%; background: var(--ink); }

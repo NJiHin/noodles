@@ -46,13 +46,6 @@ def test_rerun_counts_questions_with_a_new_call(client, target):
     assert m["run"]["compared_with"]["version_id"] == target
 
 
-def test_prices_not_set_gives_no_total(client, target, monkeypatch):
-    monkeypatch.setattr(cost, "PRICES", {})
-    drive(client, target)
-    c = method(client, target)["cost"]
-    assert c["total"] is None and c["by_type"]["student"]["input_tokens"] == 400
-
-
 def test_method_lists_every_run_of_the_course_with_its_cost(client, target):
     first = drive(client, target)["run_id"]
     v2 = course(client, "CS2030", {**PAGES, 2: "Loops run a block of code again while a condition holds."})
@@ -67,8 +60,9 @@ def test_method_lists_every_run_of_the_course_with_its_cost(client, target):
     assert runs[3]["cost"] == pytest.approx(m["cost"]["total"])
 
 
-def test_runs_total_unknown_while_a_price_is_missing(client, target, monkeypatch):
-    drive(client, target)
+def test_prices_not_set_gives_no_totals(client, target, monkeypatch):
     monkeypatch.setattr(cost, "PRICES", {})
+    drive(client, target)
     m = method(client, target)
+    assert m["cost"]["total"] is None and m["cost"]["by_type"]["student"]["input_tokens"] == 400
     assert m["runs_total"] is None and all(r["cost"] is None for r in m["runs"] if r["new_calls"])

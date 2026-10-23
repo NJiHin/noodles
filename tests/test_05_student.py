@@ -289,11 +289,14 @@ def test_repeating_a_failed_calculation_is_answered_with_what_to_do(client, targ
 
 
 def test_calculations_become_steps_without_checks_or_gaps(client, target):
+    seen = []
     calls = [("1+2", "S_x"), ("1+2", "S_x"), ("x+1", "bad"), ("55*75", "product")]
 
     def student(m, t):
         done = len(outputs(m))
         if done < len(calls):
+            if done:
+                seen.append(outputs(m)[-1])
             e, label = calls[done]
             assert any(x["name"] == "calculate" for x in t)
             return [{"type": "function_call", "call_id": f"c{done}", "name": "calculate",
@@ -307,17 +310,5 @@ def test_calculations_become_steps_without_checks_or_gaps(client, target):
     assert [(s["source"], s["claim"]) for s in steps] == [("calculation", "S_x: 1+2 = 3"), ("calculation", "product: 55*75 = 4125")]
     assert all(s["grounding"] is None for s in steps) and not q["gap"]
     assert "0 knowledge steps" in q["recommendation"]["facts"]
+    assert seen[0] == "3"  # the model gets the result back
 
-
-def test_student_can_use_the_calculator(client, target):
-    seen = []
-
-    def student(m, t):
-        if not any(x.get("type") == "function_call_output" for x in m):
-            assert any(x["name"] == "calculate" for x in t)
-            return [{"type": "function_call", "call_id": "c1", "name": "calculate", "arguments": json.dumps({"expression": "55*75", "label": "product"})}]
-        seen.extend(outputs(m))
-        return answer([], final="4125")
-    fake(client).handlers["StudentAnswer"] = student
-    drive(client, target)
-    assert seen and seen[0] == "4125"
