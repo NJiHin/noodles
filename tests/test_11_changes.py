@@ -1,7 +1,7 @@
 import json
 
 from conftest import ingest, make_pdf, wait_run
-from test_05_student import answer, assess, course, drive, fake
+from test_05_student import assess, course, drive, fake
 
 PAGES4 = {1: "Variables store values that a program can read and change later.",
           2: "Loops repeat a block of code until a stated condition becomes false.",
@@ -65,39 +65,3 @@ def test_orchestrator_gets_previous_concepts_and_map_lists_id_diff(client):
     assert m1["concepts"][0]["concept_id"] in m2["id_diff"]["new"]
     assert "CS2030:renamed" not in m2["id_diff"]["new"]
 
-
-def changes(client, vid):
-    return client.get(f"/versions/{vid}/changes").json()
-
-
-def test_first_version_has_no_previous_run(client):
-    v1 = course(client, "CS2030", PAGES4)
-    two_assessments(client, v1)
-    drive(client, v1)
-    assert changes(client, v1)["previous"] is None
-
-
-def test_changed_results_edited_question_and_depth(client):
-    v1 = course(client, "CS2030", PAGES4)
-    two_assessments(client, v1)
-    fake(client).handlers["StudentAnswer"] = lambda m, t: answer([("Loops repeat a block.", "course", ["CS2030-w2-week2-p1"])])
-    drive(client, v1)
-    v2 = course(client, "CS2030", {**PAGES4, 3: "Functions group statements under one name."})
-    two_assessments(client, v2, qb=[dict(QB[0], text="What is recursion, briefly?")])
-    m = client.get(f"/versions/{v2}/map").json()["concepts"]
-    m[1]["occurrences"][0]["depth"] = "practised"  # CS2030:topic-w2, week 2: explained -> practised
-    client.put(f"/versions/{v2}/map", json={"concepts": m})
-    fake(client).handlers["StudentAnswer"] = lambda m, t: answer([("Memoisation caches.", "none", [])])
-    drive(client, v2)
-    ch = changes(client, v2)
-    assert ch["previous"]["version_id"] == v1
-    q = {x["question_id"]: x for x in ch["questions"]}
-    assert "quiz-q1" not in q  # cutoff 2: week 3 edit and a depth change don't touch its inputs, so it's cached
-    gap = next(f for f in q["final-q1"]["fields"] if f["field"] == "gap")
-    assert (gap["before"], gap["after"]) == (False, True)
-    rec = next(f for f in q["final-q1"]["fields"] if f["field"] == "recommendation")
-    assert (rec["before"], rec["after"]) == ("Change format", "Fix coverage first")
-    assert q["final-q1"]["edited"] is True
-    assert {"concept_id": "CS2030:topic-w2", "name": "CS2030 topic 2", "week": 2, "before": "explained",
-            "after": "practised"} in ch["map"]["depth"]
-    assert ch["counts"]["new_gaps"] == 1 and ch["counts"]["edited"] == 1 and ch["counts"]["depth"] == 1

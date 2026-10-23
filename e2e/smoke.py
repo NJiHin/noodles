@@ -274,7 +274,7 @@ def api_wait(run_id: str) -> None:
 
 
 def slice11(page: Page, tmp: Path) -> None:
-    """A re-upload with one file edited: map ID diff, then the changes page and markers after a new test-drive."""
+    """A re-upload with one file edited: the map lists topic IDs since the previous version."""
     a = f"http://127.0.0.1:{API}"
     files = {"Week01_Intro.pdf": make_pdf(["Welcome to CS1010. Variables hold values that a program can change.", "Fig. 1"]),
              "L2-loops.docx": make_docx(["Loops repeat a block of code until a condition becomes false."]),
@@ -290,6 +290,7 @@ def slice11(page: Page, tmp: Path) -> None:
     shot(page, "11-map-id-diff")
     page.get_by_role("button", name="Confirm map").click()
     expect(page.get_by_text("Confirmed:")).to_be_visible()
+    # an assessment and a test-drive on the new version, which slices 13 and 14 build on
     r = httpx.post(f"{a}/versions/{v2}/assessments", data={"name": "Week 4 quiz", "week_cutoff": 2, "current_format": "online_quiz"},
                    files={"paper": ("quiz.pdf", (tmp / "quiz.pdf").read_bytes()),
                           "answers": ("quiz-answers.pdf", (tmp / "quiz-answers.pdf").read_bytes())}, timeout=120).json()
@@ -298,15 +299,7 @@ def slice11(page: Page, tmp: Path) -> None:
     httpx.put(f"{a}/versions/{v2}/assessments/week-4-quiz/questions", json={"questions": [
         {k: q[k] for k in ("question_id", "text", "options", "type", "marking_material")} for q in qs]}).raise_for_status()
     api_wait(httpx.post(f"{a}/versions/{v2}/test-drives", json={"prerequisite": None}).json()["run_id"])
-    page.goto(f"http://127.0.0.1:{WEB}/#/v/{v2}/changes")
-    expect(page.get_by_role("heading", name="Changes since last run")).to_be_visible()
-    expect(page.get_by_text("with changed results")).to_be_visible()
-    expect(page.locator(".oc a.q", has_text="Q1")).to_be_visible()  # the web override was on the previous run only
-    shot(page, "11-changes")
-    page.goto(f"http://127.0.0.1:{WEB}/#/v/{v2}/review")
-    expect(page.locator(".item .chg").first).to_be_visible()
-    page.goto(f"http://127.0.0.1:{WEB}/#/v/{STATE['version']}/changes")
-    expect(page.get_by_text("There is no previous run to compare with")).to_be_visible()
+    page.goto(f"http://127.0.0.1:{WEB}/#/v/{STATE['version']}/review")
 
 
 def slice12(page: Page, tmp: Path) -> None:

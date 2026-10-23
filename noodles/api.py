@@ -24,7 +24,7 @@ from noodles.ollama import Ollama, OllamaError
 from noodles.student import test_drive
 from noodles.web import Verdict, exposure
 from noodles.cost import run_cost
-from noodles.report import changes, recommend, summary, topic_coverage
+from noodles.report import recommend, summary, topic_coverage
 from noodles.ingest import FingerprintTaken, IngestError, LastFile, add_files, remove_file, check_upload_name, guess_week, ingest, page_png, read_document, slugify
 
 ID = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -368,22 +368,6 @@ def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opt
         runs.sort(key=lambda r: r["run_id"])  # run IDs start with their UTC start time
         costs = [r["cost"] for r in runs]
         return {"runs": runs, "runs_total": None if None in costs else sum(costs)}
-
-    @app.get("/versions/{vid}/changes")
-    def get_changes(vid: str):
-        """This version's latest run against the latest run of the previous version (sys-design Stage 4 section 5)."""
-        with conn() as c:
-            v = version_row(c, vid)
-            prev = previous_version(c, v, with_run=True)
-            maps = {x: load_map(c, x) for x in (vid, prev) if x}
-            prev_row = prev and dict(version_row(c, prev))
-        cur = get_review(vid)
-        if not prev or not cur["run"]:
-            return {"course_code": v["course_code"], "run": cur["run"], "previous": None}
-        old = get_review(prev)
-        return {"course_code": v["course_code"], "run": cur["run"],
-                "previous": {"version_id": prev, "created_at": prev_row["created_at"], "run": old["run"]},
-                **changes(cur["questions"], old["questions"], maps[vid], maps[prev])}
 
     @app.get("/versions/{vid}/review")
     def get_review(vid: str):

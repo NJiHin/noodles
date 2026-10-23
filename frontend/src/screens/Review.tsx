@@ -4,7 +4,7 @@ import { PageLink } from '../PageViewer'
 import { RunProgress } from '../RunProgress'
 import { Tex } from '../Tex'
 import { AddedNotice, RerunIcon, VersionShell, fmtDate } from '../Shell'
-import { FORMAT_LABEL, type Changes, type Mark, type ReviewQuestion, type ReviewResp, type Step, type Verdict } from '../types'
+import { FORMAT_LABEL, type Mark, type ReviewQuestion, type ReviewResp, type Step, type Verdict } from '../types'
 
 type Course = { code: string; versions: { map_reviewed_at: string | null }[] }
 
@@ -29,15 +29,8 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
   const [prereqs, setPrereqs] = useState<string[]>([])
   const [prereq, setPrereq] = useState('')
   const [err, setErr] = useState('')
-  const [chg, setChg] = useState<Record<string, string>>({})
   const [by, setBy] = useState<typeof BY[number]>('Recommendation')
   const [only, setOnly] = useState('')  // one assessment, or '' for all
-  useEffect(() => {
-    api<Changes>(`/versions/${vid}/changes`).then((c) => setChg(Object.fromEntries((c.questions ?? []).map((q) => {
-      const gap = q.fields.find((f) => f.field === 'gap')
-      return [q.question_id, gap ? (gap.after ? 'New gap' : 'Gap fixed') : q.fields.length ? 'Changed' : 'Edited']
-    })))).catch(() => setChg({}))
-  }, [vid, r?.run?.run_id])
   const load = () => api<ReviewResp>(`/versions/${vid}/review`).then((x) => {
     setR(x); if (x.prerequisite) setPrereq(x.prerequisite)
   }).catch((e) => setErr(e.message))
@@ -97,7 +90,7 @@ export function Review({ vid, qid }: { vid: string; qid?: string }) {
               <div className="cols-h"><span /><span>Question</span><span>Weeks</span><span>Paper</span></div>
               {g.map(([q, text], i) => (
                 <a key={`${q.question_id}-${i}`} className={`item${q === sel ? ' on' : ''}${q.type === 'code' || q.recommendation?.group === 'Keep as is' ? ' done' : ''}`} href={`#/v/${vid}/review/${q.question_id}`}>
-                  <span className="id" title={short(q)}>{short(q)}</span><span className="t"><Tex>{text}</Tex></span><WeekGrid weeks={weeksOf(q)} /><span className="wk" title={q.assessment_id}>{q.assessment_id}{chg[q.question_id] && <span className="chg" title="Since the last run of the previous version">{chg[q.question_id]}</span>}</span>
+                  <span className="id" title={short(q)}>{short(q)}</span><span className="t"><Tex>{text}</Tex></span><WeekGrid weeks={weeksOf(q)} /><span className="wk" title={q.assessment_id}>{q.assessment_id}</span>
                 </a>
               ))}
             </div>

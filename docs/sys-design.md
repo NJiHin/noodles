@@ -307,13 +307,7 @@ Combined in code from the stage 2 and 3 outputs and the course map:
 2. **Assessment review (main):** for each assessment and question: coverage, AI exposure, lookup or reasoning, and a recommendation (see Recommendation rules).
 3. **Coverage across the semester** (shown on the Summary; no tab of its own). A chart of the topics introduced each week, split into assessed by any question and never assessed, with a dotted line at the last week each assessment covers; below it, the never-assessed topics for the weeks before each assessment. Gaps are already in the assessment review and the summary's actions, and "only mentioned but assessed" is shown on the question in the assessment review, so neither is repeated here. Each question's concepts are worked out in code from the student's citations: each cited passage maps to the concept records that list it as evidence. There is no separate question-mapping step. Limitation (stated in the report): a concept used only in an `assumed_knowledge` or `none` step isn't counted as assessed, and a cited passage tagged with several concepts counts all of them. **Only mentioned but assessed:** every topic has a `depth` for each occurrence (week), set by the extractor in stage 1. For each concept a question uses (found from the student's citations), take its deepest level in any week up to the question's `week_cutoff`. If that is only `mentioned`, flag it on that question in the assessment review, e.g. "the final exam relies on the call stack, only mentioned in week 5, slide 13". The grounding checker can't catch this, because a passing mention still supports the step. Depth labels are the extractor's judgement, and a light mention may be intentional, so this is reported for the professor to consider, not as an error. "Ordering problems" (a concept used before it's taught) are not a separate finding: the student never sees later weeks, so these appear as `none` flags and the professor recognises them in review.
 4. **Assumed knowledge to confirm.**
-5. **Changes since the last run:** compares this run with the latest run of the previous version, in code. Both levels:
-   - **Questions** (matched by `question_id`): changes in student verdict, web verdict, AI exposure, gap and recommendation. A question whose text changed is marked "question edited".
-   - **Course map** (matched by `concept_id`): topics added or removed, and depth changes per week.
-   - **Navigation:** the section opens with counts per kind of change, and each entry links to that question or topic. Changed questions also carry a marker in the assessment review, showing before → after; changed topics link to the course map.
-   - On a course's first version, the section says there is no previous run.
-   - **Open (tabled):** files added to a version in place are not compared (the before and after runs are in the same version), and the page may be redundant.
-6. **Method and limitations.**
+5. **Method and limitations.**
 
 ## Orchestration and storage
 
@@ -347,7 +341,6 @@ Combined in code from the stage 2 and 3 outputs and the course map:
 - The course code is the ID that groups all versions of a course (e.g. `CS1010`).
 - Every upload or week correction creates a new version (found again by a fingerprint of its materials and their confirmed weeks) under the same course code. A handover is a new version uploaded by a different professor.
 - Adding files to a course changes its latest version in place (Stage 0, "Adding files to a course").
-- "Changes since the last run" compares the latest version with the previous one under the same course code.
 - The cache is shared across all versions of a course, so unchanged weeks reuse earlier results.
 
 **Run log (cache and trace):**
@@ -530,7 +523,7 @@ Required for the documentation's Evaluation section: test cases or metrics, a ba
 
 **4. Documentation examples:** 2 to 3 dashboard screenshots from the evaluation runs, including one false flag as the edge case.
 
-**Q&A to prepare:** "If a strong model can build the reference, why do we need the product?" Building it took repeated runs, merging and checking: a one-off research effort, not something a professor can do weekly. The product does it in one repeatable, week-limited run, and adds AI exposure, recommendations, change tracking and the dashboard.
+**Q&A to prepare:** "If a strong model can build the reference, why do we need the product?" Building it took repeated runs, merging and checking: a one-off research effort, not something a professor can do weekly. The product does it in one repeatable, week-limited run, and adds AI exposure, recommendations and the dashboard.
 
 ## Roadmap (build if time allows, otherwise list as future work)
 

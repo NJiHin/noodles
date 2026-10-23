@@ -5,7 +5,6 @@ import { CourseMap } from './screens/CourseMap'
 import { Assessments } from './screens/Assessments'
 import { Review } from './screens/Review'
 import { Summary } from './screens/Summary'
-import { Changes } from './screens/Changes'
 import { Method } from './screens/Method'
 
 export default function App() {
@@ -15,7 +14,6 @@ export default function App() {
   if (a === 'v' && vid && screen === 'assessments') return <Assessments vid={vid} />
   if (a === 'v' && vid && screen === 'review') return <Review vid={vid} qid={qid} />
   if (a === 'v' && vid && screen === 'summary') return <Summary vid={vid} />
-  if (a === 'v' && vid && screen === 'changes') return <Changes vid={vid} />
   if (a === 'v' && vid && screen === 'method') return <Method vid={vid} />
   return <Home />
 }

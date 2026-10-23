@@ -4,7 +4,6 @@ import './c-shell.css'
 import './app.css'
 import './review.css'
 import './summary.css'
-import './changes.css'
 import './method.css'
 import App from './App.tsx'
 
