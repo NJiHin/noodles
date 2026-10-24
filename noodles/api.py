@@ -14,6 +14,7 @@ import tempfile
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 import pypdfium2
 from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from noodles import db
@@ -670,9 +671,14 @@ def assumption(step: dict, decisions: dict[int, dict]) -> dict | None:
 
 
 def from_env() -> FastAPI:
-    """NOODLES_DATA / NOODLES_RUNS dirs; NOODLES_FAKE=1 swaps in fake model clients (no model calls)."""
+    """NOODLES_DATA / NOODLES_RUNS dirs; NOODLES_FAKE=1 swaps in fake model clients (no model calls);
+    NOODLES_OLLAMA_URL points at Ollama; NOODLES_STATIC serves the built front end at / (the Docker image)."""
     fake = os.environ.get("NOODLES_FAKE") == "1"
+    data = Path(os.environ.get("NOODLES_DATA", "data"))
     if fake:
         from noodles.fakes import FakeOllama, FakeOpenAI
-    return create_app(Path(os.environ.get("NOODLES_DATA", "data")), Path(os.environ.get("NOODLES_RUNS", "runs")),
-                      ollama=FakeOllama() if fake else None, openai=FakeOpenAI() if fake else None)
+    vlm = FakeOllama() if fake else Ollama(data / "transcriptions", os.environ.get("NOODLES_OLLAMA_URL", "http://127.0.0.1:11434"))
+    app = create_app(data, Path(os.environ.get("NOODLES_RUNS", "runs")), ollama=vlm, openai=FakeOpenAI() if fake else None)
+    if static := os.environ.get("NOODLES_STATIC"):
+        app.mount("/", StaticFiles(directory=static, html=True))  # after the API routes, so they match first
+    return app

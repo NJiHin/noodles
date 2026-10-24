@@ -1,0 +1,14 @@
+# Course materials, run logs and secrets never go into the image
+data/
+runs/
+canvas/
+.env
+.venv/
+.git/
+.claude/
+**/node_modules/
+frontend/dist/
+docs/
+tests/
+e2e/
+scripts/
