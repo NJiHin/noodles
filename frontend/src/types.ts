@@ -18,7 +18,7 @@ export type Assessment = {
 }
 export const FORMAT_LABEL: Record<string, string> = { take_home: 'take-home', online_quiz: 'online quiz', invigilated_exam: 'invigilated exam' }
 export type Cited = { passage_id: string; course?: string; version_id?: string; week?: number; filename?: string; slug?: string; page?: number; text?: string; origin?: 'parser' | 'vlm' }
-export type Step = { step_id: string; claim: string; source: 'course' | 'prerequisite' | 'assumed_knowledge' | 'none' | 'calculation'; evidence: Cited[]; reason: string | null; accepted_id: number | null
+export type Step = { step_id: string; claim: string; source: 'course' | 'prerequisite' | 'assumed_knowledge' | 'general_knowledge' | 'none' | 'calculation'; evidence: Cited[]; reason: string | null; accepted_id: number | null
   grounding: { verdict: 'supported' | 'partial' | 'unsupported'; reason: string } | null
   assumption: { state: 'accepted' | 'rejected' | 'unreviewed'; id?: number } | null }
 export type ReviewQuestion = {

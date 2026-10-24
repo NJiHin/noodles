@@ -197,7 +197,9 @@ Calculating these on demand keeps them in step with the map after a professor co
 }
 ```
 
-- **School-level knowledge is not a step:** every university student is taken to know secondary-school and pre-university (A-level/JC) mathematics and general knowledge, e.g. arithmetic, basic algebra, reading a table, substituting values into a formula the question gives. The student folds these into the claims of the steps that use them and never lists them, so they are neither assumed knowledge for the professor to confirm nor gaps. Anything printed in the question itself (its data, tables and any formula it gives) is not knowledge either: using it is never a step and needs no source, and the prompt says so in those words with an example (computing a mean from a table in the question is no step). A question that needs nothing more (e.g. computing a value from a formula and data printed on the paper) has no steps.
+- **Every answer has at least one step,** so the reader always sees what it rests on (an empty list hid knowledge the student used without declaring it). Knowledge that needs no source is a `general_knowledge` step: assumed knowledge that needs no confirming. It is shown in the review but never grounded, never a gap, never asked about and not counted as a knowledge step.
+- **School-level knowledge is general knowledge:** every university student is taken to know secondary-school and pre-university (A-level/JC) mathematics and general knowledge, e.g. arithmetic, basic algebra, reading a table, substituting values into a formula the question gives. Anything printed in the question itself (its data, tables and any formula it gives) needs no source either. Inside a course step these are folded into its claim; an answer that rests only on them (e.g. computing a value from a formula and data printed on the paper) has one `general_knowledge` step saying so ("S_x is the sum of the x column, as the question defines it"). They are never assumed knowledge for the professor to confirm, nor gaps. The prompt forbids `general_knowledge` for subject knowledge of the course; a student that hides course knowledge there is visible in the review, not caught automatically.
+- **Taught in class:** the exception to that rule. When the question says something was taught in class (e.g. "the normal equations discussed in class") and the answer uses it, knowing it is a step even if the question prints it, and is sourced like any other step: if the passages up to the week don't teach it, it is `none` (a gap). A part that doesn't use it (e.g. one that only asks for a sum from the table) gets no such step. The required knowledge finder follows the same rule (Evaluation).
 - **Mathematics in answers** (student and web agent) is LaTeX inside `\( \)` or `\[ \]`, so the report renders it.
 - No `status` field. Coverage comes from the steps (any `none` step is a gap) and correctness from the marker, so the student can't contradict itself.
 - `final_answer` is `null` if the student can't attempt the question; it still lists the steps it managed.
@@ -496,6 +498,8 @@ CREATE TABLE verdict_overrides (              -- tied to one run; a rerun's new 
 
 Required for the documentation's Evaluation section: test cases or metrics, a baseline comparison, examples and edge cases.
 
+Evaluation is not part of the product: no screen or sidebar entry, since professors never have a reference set. It runs as scripts beside the app, and its files live under `data/` so they are never committed (they contain course passages). Slice spec: `docs/specs/13-evaluation.md`.
+
 **1. Perturbed set (gold standard): tests that flagging works.**
 - One demo course with 5 to 10 planted coverage problems, e.g. delete an explanation, add a question on an untaught topic, reduce a worked example to a passing mention.
 - Add a few questions with known AI exposure: some copied from public sources (should be exposed) and some about a specific case from the course (shouldn't be).
@@ -503,7 +507,8 @@ Required for the documentation's Evaluation section: test cases or metrics, a ba
 - Metrics: detection rate and false flags, for coverage and exposure separately.
 
 **2. Reference set (silver standard): tests the whole pipeline on an unmodified course.**
-- Generated once by Claude Code with a strong model. For each question it receives the question, **the answer key** and the same week-limited materials as the student agent.
+- Generated once by the **required knowledge finder**: Claude Code with a strong model, a reverse student that works back from the answer. For each question it receives the question, **the answer key** and the same week-limited materials as the student agent.
+- One entry per question, traced against the materials up to its own assessment's week. With a quiz each week, entries are added as each week's quiz arrives; earlier entries stay frozen.
 - Its task is to **trace the known answer to the materials**, not to solve the question. For each step it records the knowledge needed, the supporting passage IDs or `not in materials`, and an overall coverage verdict. Optionally it also lists the topics taught in each week, which lets us measure extraction completeness.
 - Run several times and merged (an LLM may do the merging), keeping `not in materials` whenever runs disagree. Then frozen.
 - The prompt forbids stretching citations: "if no passage supports a step, write `not in materials`".

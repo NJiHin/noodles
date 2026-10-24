@@ -20,9 +20,9 @@ from noodles.grounding import ground
 from noodles.web import mark, question_text, web_agent
 from noodles.llm import LUNA, Run, add_usage
 
-STUDENT_V, RECHECK_V = "student-v9", "recheck-v1"  # v9: the bare-answer line names final_answer, so steps are still listed
+STUDENT_V, RECHECK_V = "student-v13", "recheck-v1"  # v13: the prompt lists the tools, when to use each and their limits
 MAX_LOOKUPS, RECHECK_HITS, MAX_CALCS = 5, 3, 30
-Source = Literal["course", "prerequisite", "assumed_knowledge", "none"]
+Source = Literal["course", "prerequisite", "assumed_knowledge", "general_knowledge", "none"]
 ASSESSMENT_TABLES = {"assessments", "assessment_files", "questions"}
 
 
@@ -108,17 +108,27 @@ def show(p) -> str:
 
 PROMPT = """You are a student. You have completed {prereq} and attended weeks 1 to {n} of {course}. You know nothing else in this subject.
 
-Answer the exam question concisely, as in an exam. List the steps of your answer: only steps that bring in knowledge, with pure reasoning folded into those steps' claims. As a university student you already know secondary-school and pre-university (A-level/JC) mathematics and general knowledge, such as arithmetic, basic algebra, reading a table and substituting values into a formula you are given: never list these as steps, fold them into the claims of the steps that use them. Anything printed in the question itself (its data, tables, and any formula it gives you) is not knowledge: using it is never a step and needs no source. Example: computing a mean from a table in the question is no step. If the question gives everything you need, list no steps. Write any mathematics in LaTeX inside \\( \\) (inline) or \\[ \\] (display). For each step give its source:
+Answer the exam question concisely, as in an exam. List the steps of your answer: the knowledge each one brings in, with pure reasoning folded into those steps' claims. Every answer has at least one step, so a reader can see what it rests on. As a university student you already know secondary-school and pre-university (A-level/JC) mathematics and general knowledge, such as arithmetic, basic algebra, reading a table and substituting values into a formula you are given; anything printed in the question itself (its data, tables, and any formula it gives you) needs no source either. When your answer rests only on these, say so in one "general_knowledge" step, e.g. "S_x is the sum of the x column, as the question defines it." Never use "general_knowledge" for subject knowledge of this course. Exception: when the question says something was taught in class (e.g. "the normal equations discussed in class") and your answer uses it, knowing it is a step even if the question prints it: look for it in the course passages like any other step. A part of the question that doesn't use it (e.g. one that only asks for a sum from the table) gets no such step. Write any mathematics in LaTeX inside \\( \\) (inline) or \\[ \\] (display). For each step give its source:
 - "course": you found it in a passage of {course} weeks 1 to {n}. Cite the passage IDs as evidence.
 - "prerequisite": you found it in a passage of the prerequisite course. Cite the passage IDs as evidence.
 - "assumed_knowledge": something beyond pre-university level that the course's stated entry requirements imply (e.g. its prerequisite course) but that isn't in the provided materials. Give a one-line reason. Example: "A square matrix is invertible exactly when its determinant is non-zero." with reason "Linear algebra is a stated prerequisite of the course."
+- "general_knowledge": school-level knowledge or something printed in the question, as above. Leave evidence empty.
 - "none": subject knowledge the answer needs that you wouldn't already know and can't find in the course or prerequisite materials. Example: "Memoisation caches results." when no passage covers memoisation.
 Use "prerequisite" whenever the material exists there; use "assumed_knowledge" only when it doesn't. When unsure between "assumed_knowledge" and "none", choose "none".
-Cite only passage IDs you were shown. Leave evidence empty for "assumed_knowledge" and "none", and reason and accepted_id null unless stated below.
+Cite only passage IDs you were shown. Leave evidence empty for "assumed_knowledge", "general_knowledge" and "none", and reason and accepted_id null unless stated below.
 final_answer is the answer alone, with no explanation: your reasoning belongs in the steps. If you can't attempt the question, set final_answer to null and still list the steps you managed.
 
-{decided}Use the calculate tool for every calculation instead of working it out yourself, as you would use a calculator in the exam.
-To read the materials, call lookup_concept with the IDs of the topics you need (at most {max} calls; zero is fine). It returns every passage tagged with those topics. The topics you have been taught:
+{decided}Everything you state, in your steps and your final answer, must come from one of three places:
+- the question itself (its data, tables and given formulas);
+- a tool result: a calculate result for any number you work out, or a passage from lookup_concept for course content;
+- general knowledge, labelled as a general_knowledge step.
+If a tool can give you something, call the tool instead of writing it from memory, even inside a step's claim. You answer each part of a question on its own and can't see the other parts' answers, so work out anything you need from them again.
+
+Your tools:
+- lookup_concept(topic_ids): returns every course passage tagged with those topics, with its ID. Use it for any subject knowledge of this course; you don't need it for general knowledge or what the question gives. At most {max} calls.
+- calculate(expression, label): evaluates arithmetic exactly. Use it for every number you work out. At most {max_calc} calls.
+
+The topics you have been taught:
 {topics}"""
 
 RECHECK = """A keyword search of the materials you can see found passages for some of your uncited steps (numbered from 1 in your answer). For each step below, return its corrected label: "course" or "prerequisite" with the passage IDs that support it, or keep it "none" or "assumed_knowledge" (with its reason) if these passages don't cover it.
@@ -197,7 +207,7 @@ async def student(run: Run, conn: sqlite3.Connection, q: dict, course: str, targ
     n = q["week_cutoff"]
     listed = topics(conn, target, n, prereq)
     ids = [t["concept_id"] for t in listed]
-    system = PROMPT.format(prereq=prereq_course or "no prerequisite courses", n=n, course=course, max=MAX_LOOKUPS,
+    system = PROMPT.format(prereq=prereq_course or "no prerequisite courses", n=n, course=course, max=MAX_LOOKUPS, max_calc=MAX_CALCS,
                            decided=decided_text(decisions),
                            topics="\n".join(f"{t['concept_id']} | {topic_label(t['name'], json.loads(t['aliases']))} | "
                                             f"{t['description'] or ''}" for t in listed) or "(none)")

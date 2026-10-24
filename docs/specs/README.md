@@ -18,6 +18,7 @@ Build in order. Each slice ends with something you can use in the browser.
 | 10 | [Learning path](10-learning-path.md) | learning path (`c3-learning-path`) |
 | 11 | [Versions and changes](11-versions-and-changes.md) | changes (`c5-changes`), map review ID diff |
 | 12 | [Method, limitations and cost](12-method-and-cost.md) | method (`c6-method`) |
+| 13 | [Evaluation](13-evaluation.md) | none (scripts only) |
 
 Slice 02 can move later if the demo materials are mostly text. It must land before pilots on real courses.
 
@@ -32,4 +33,4 @@ Slice 02 can move later if the demo materials are mostly text. It must land befo
 
 ## Not in these slices
 
-Evaluation (perturbed and reference sets), code questions and everything under sys-design "Roadmap".
+Code questions and everything under sys-design "Roadmap".

@@ -31,8 +31,8 @@ ACTIONS = [("fix_coverage", ["fix_coverage"]), ("review", ["review_untaught", "r
 
 
 def knowledge_steps(q: dict) -> list[dict]:
-    """The steps that bring in knowledge: not the calculator's working."""
-    return [s for s in q["answer"]["steps"] if s["source"] != "calculation"]
+    """The steps that bring in course knowledge: not the calculator's working or general knowledge."""
+    return [s for s in q["answer"]["steps"] if s["source"] not in ("calculation", "general_knowledge")]
 
 
 def is_lookup(q: dict) -> bool:

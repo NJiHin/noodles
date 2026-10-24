@@ -146,7 +146,7 @@ function Detail({ vid, q, prereq, course, reload, rerun, notice }: { vid: string
           <div className="steps">
             <div className="steps-h"><h2>The student's steps</h2>
               <button className="btn rerun" disabled={!rerun} onClick={rerun}><RerunIcon />Rerun this question</button></div>
-            {!a.steps.some((s) => s.source !== 'calculation') && <p className="muted">No knowledge steps listed.</p>}
+            {!a.steps.some((s) => s.source !== 'calculation') && <p className="muted">No steps listed.</p>}
             <ol>{a.steps.map((s, i) => <StepItem key={s.step_id} s={s} n={i + 1} cutoff={q.week_cutoff} prereq={prereq} course={course} reload={reload} />)}</ol>
           </div>
         </>
@@ -176,6 +176,7 @@ function StepItem({ s, n, cutoff, prereq, course, reload }: { s: Step; n: number
           </div>
         ))}
         {g && <p className="why"><b>{GROUNDING[g.verdict]}</b> {g.verdict !== 'supported' && `Grounding checker: ${g.verdict}. `}{g.reason}</p>}
+        {s.source === 'general_knowledge' && <p className="why"><b>General knowledge.</b> School-level knowledge or given in the question: not checked against the materials and not a gap.</p>}
         {s.source === 'none' && <p className="why"><b>No source.</b> Not found in weeks 1 to {cutoff}{prereq ? ` or ${prereq}` : ''}, including the keyword re-check.</p>}
         {as?.state === 'unreviewed' && <>
           <p className="why"><b>Assumed knowledge.</b> Student's reason: {s.reason || 'none given.'}</p>

@@ -312,3 +312,14 @@ def test_calculations_become_steps_without_checks_or_gaps(client, target):
     assert "0 knowledge steps" in q["recommendation"]["facts"]
     assert seen[0] == "3"  # the model gets the result back
 
+
+
+def test_general_knowledge_step_is_shown_but_never_checked_asked_or_a_gap(client, target):
+    fake(client).handlers["StudentAnswer"] = lambda m, t: answer([("A loop body can run many times.", "general_knowledge", [])], "A")
+    drive(client, target)
+    assert fake(client).count("Grounding") == 0 and fake(client).count("Relabels") == 0
+    q = review(client, target)["quiz-q1"]
+    [s] = q["answer"]["steps"]
+    assert s["source"] == "general_knowledge" and s["grounding"] is None and s["assumption"] is None
+    assert not q["gap"] and "0 knowledge steps" in q["recommendation"]["facts"]
+    assert client.get(f"/courses/CS2030/assumptions").json() == []  # nothing to confirm
