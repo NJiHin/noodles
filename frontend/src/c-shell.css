@@ -18,7 +18,7 @@
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 * { box-sizing: border-box; margin: 0; }
-body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); width: 1440px; min-height: 100vh; display: grid; grid-template-columns: 220px 1fr; font-variant-numeric: tabular-nums; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); min-height: 100vh; display: grid; grid-template-columns: 220px minmax(0, 1fr); font-variant-numeric: tabular-nums; }
 
 /* left: report sections */
 .side { border-right: 1px solid var(--line); padding: 20px 14px; display: flex; flex-direction: column; gap: 2px; }

@@ -1,5 +1,5 @@
 /* c2-review board: question list beside the selected question (body grid 220px 400px 1fr on the board). */
-.review { display: grid; grid-template-columns: 400px 1fr; min-height: 100vh; }
+.review { display: grid; grid-template-columns: 400px minmax(0, 1fr); min-height: 100vh; }
 .review .list { border-right: 1px solid var(--line); background: var(--surface); overflow: hidden; }
 .review .list-head { padding: 18px 20px 12px; border-bottom: 1px solid var(--line); }
 .review .list-head h1 { font-size: 16px; font-weight: 600; }
@@ -19,7 +19,7 @@
 .review .meta { color: var(--ink-3); font-size: 13px; }
 .review .qtitle { font: 500 22px/1.35 var(--sans); letter-spacing: -0.01em; max-width: 52ch; margin-top: 4px; white-space: pre-wrap; }
 .review .opts { color: var(--ink-2); margin-top: 8px; padding-left: 0; list-style: none; }
-.review .answers { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.review .answers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .review .ans { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
 .review .ans h3 { font-size: 13px; color: var(--ink-3); font-weight: 500; display: flex; justify-content: space-between; }
 .review .ans .a { margin-top: 6px; font-size: 14px; }
@@ -82,3 +82,4 @@
 .topics-used .row { display: grid; grid-template-columns: 64px 1fr; gap: 10px; }
 .topics-used .row b { color: var(--ink-2); font-weight: 500; }
 .topics-used a { color: var(--accent); text-decoration: none; }
+.review .detail .katex-display { overflow-x: auto; overflow-y: hidden; }  /* a long equation scrolls instead of widening the page */
