@@ -1,6 +1,6 @@
 # How the evaluation works
 
-A plain walkthrough of the reference-set evaluation. The rules and file formats are in `docs/specs/13-evaluation.md`; the reasons are in `docs/sys-design.md` ("Evaluation").
+A plain walkthrough of the reference-set evaluation. The rules and file formats are in `docs/specs/13-evaluation.md`; the design is in `docs/sys-design.md` ("Evaluation"); why the method is valid, its limitations and the IS2109 pilot results are in `docs/eval/eval-findings.md`.
 
 ## The idea
 
@@ -26,7 +26,7 @@ For every question with an answer key, this writes one file holding the question
 
 **2. Run the required knowledge finder three times per question (Claude Code).**
 
-Three separate runs read each input file, each in a fresh context, so no run sees another's answer. Each run lists the knowledge the answer needs, step by step, and for each step either the passages that teach it or `not in materials`. Arithmetic, school-level maths and anything printed in the question are not steps. Each run writes one file to `traces/` (a run's output is called a trace). These runs don't use the OpenAI credits.
+Three separate runs read each input file, each in a fresh context, so no run sees another's answer. Each run lists the knowledge the answer needs, step by step, and for each step either the passages that teach it or `not in materials`. The finder follows the student's step rules: school-level knowledge and anything printed in the question need no passage (an answer resting only on these gets one general-knowledge step), and something the question says was taught in class is a step whenever the answer uses it. Each run writes one file to `traces/` (a run's output is called a trace). These runs don't use the OpenAI credits.
 
 **3. Merge into the silver set (code, free).**
 

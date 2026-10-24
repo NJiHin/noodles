@@ -498,7 +498,7 @@ CREATE TABLE verdict_overrides (              -- tied to one run; a rerun's new 
 
 Required for the documentation's Evaluation section: test cases or metrics, a baseline comparison, examples and edge cases.
 
-Evaluation is not part of the product: no screen or sidebar entry, since professors never have a reference set. It runs as scripts beside the app, and its files live under `data/` so they are never committed (they contain course passages). Slice spec: `docs/specs/13-evaluation.md`.
+Evaluation is not part of the product: no screen or sidebar entry, since professors never have a reference set. It runs as scripts beside the app, and its files live under `data/` so they are never committed (they contain course passages). Slice spec: `docs/specs/13-evaluation.md`; step-by-step walkthrough, validity, limitations and pilot results: `docs/eval/`.
 
 **1. Perturbed set (gold standard): tests that flagging works.**
 - One demo course with 5 to 10 planted coverage problems, e.g. delete an explanation, add a question on an untaught topic, reduce a worked example to a passing mention.
