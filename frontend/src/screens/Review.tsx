@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { api, post } from '../api'
 import { PageLink } from '../PageViewer'
 import { RunProgress } from '../RunProgress'
-import { Tex } from '../Tex'
+import { Md, Tex } from '../Tex'
 import { AddedNotice, RerunIcon, VersionShell, fmtDate } from '../Shell'
 import { FORMAT_LABEL, type Mark, type ReviewQuestion, type ReviewResp, type Step, type Verdict } from '../types'
 
@@ -111,8 +111,8 @@ function Detail({ vid, q, prereq, course, reload, rerun, notice }: { vid: string
     <>
       <div>
         <div className="meta">{q.assessment_id}, question {short(q)}. Covers weeks 1 to {q.week_cutoff}, {FORMAT_LABEL[q.current_format]}.</div>
-        {q.context && <p className="qctx"><Tex>{q.context}</Tex></p>}
-        <h2 className="qtitle"><Tex>{q.text}</Tex></h2>
+        {q.context && <div className="qctx"><Md>{q.context}</Md></div>}
+        <h2 className="qtitle"><Md inline>{q.text}</Md></h2>
         {q.options && <ol className="opts">{q.options.map((o, i) => <li key={i}>({String.fromCharCode(65 + i)}) <Tex>{o}</Tex></li>)}</ol>}
       </div>
       {notice}
