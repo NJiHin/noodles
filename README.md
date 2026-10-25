@@ -1,5 +1,20 @@
 # Noodles
 
+<div align="center"><samp>
+&nbsp;&nbsp;━━━━━━━━━━━━━&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>
+&nbsp;&nbsp;━┃┃┃━━━━━━━━━━&nbsp;&nbsp;&nbsp;&nbsp;<br>
+&nbsp;&nbsp;╭┸┸┸──────╮&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>
+&nbsp;╭╯╱╱╱╱╱╱╲╲╲╰╮&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>
+━━━━━━━━━━━━━━━&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>
+&nbsp;╲&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;╱&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>
+&nbsp;&nbsp;╲_________╱&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>
+&nbsp;&nbsp;&nbsp;&nbsp;└─────┘&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br>&nbsp;
+</samp></div>
+
+Noodles checks whether a course's assessments test what the course actually teaches. Simulated students, limited to the course materials released up to each assessment's week, answer every question and cite the pages they used. A web-search agent answers the same questions. The result is a course report centred on a review of the assessments: which questions the materials cover, which need knowledge the course never teaches (gaps), and which an AI with web search can answer (exposure).
+
+The design is in `docs/sys-design.md`.
+
 ## Run with Docker
 
 One image holds the app and the front end. Ollama (page transcription) runs on your own machine, so it can use your GPU.
@@ -27,5 +42,3 @@ One image holds the app and the front end. Ollama (page transcription) runs on y
 Courses, materials and run logs are kept in `data/` and `runs/` on your machine, not in the image.
 
 To click through without a key or Ollama (fake models, no paid calls), add `NOODLES_FAKE=1` to `.env`.
-
-On Linux, start Ollama with `OLLAMA_HOST=0.0.0.0` so the container can reach it.
