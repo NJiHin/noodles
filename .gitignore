@@ -20,3 +20,4 @@ data/
 runs/
 .env
 node_modules/
+docs/archive
