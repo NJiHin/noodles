@@ -1,0 +1,85 @@
+/* c2-review board: question list beside the selected question (body grid 220px 400px 1fr on the board). */
+.review { display: grid; grid-template-columns: 400px minmax(0, 1fr); min-height: 100vh; }
+.review .list { border-right: 1px solid var(--line); background: var(--surface); overflow: hidden; }
+.review .list-head { padding: 18px 20px 12px; border-bottom: 1px solid var(--line); }
+.review .list-head h1 { font-size: 16px; font-weight: 600; }
+.review .start { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+.review .start select { font: 13px var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; background: var(--surface); }
+.review .group { margin-top: 8px; padding: 9px 20px; background: var(--bg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--ink); font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.review .list-head + .group { margin-top: 0; border-top: 0; }
+.review .group span:last-child { margin-left: auto; color: var(--ink-3); font-weight: 500; }
+.review .item { display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; padding: 10px 20px; align-items: start; cursor: pointer; color: inherit; text-decoration: none; }
+.review .item.on { background: var(--accent-t); }
+.review .item .id { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review .item .t { color: var(--ink-2); font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.review .item .wk { color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
+.review .done { opacity: .55; }
+
+.review .detail { padding: 28px 40px; overflow: hidden; display: flex; flex-direction: column; gap: 22px; }
+.review .meta { color: var(--ink-3); font-size: 13px; }
+.review .qtitle { font: 500 22px/1.35 var(--sans); letter-spacing: -0.01em; max-width: 52ch; margin-top: 4px; white-space: pre-wrap; }
+.review .opts { color: var(--ink-2); margin-top: 8px; padding-left: 0; list-style: none; }
+.review .answers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.review .ans { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.review .ans h3 { font-size: 13px; color: var(--ink-3); font-weight: 500; display: flex; justify-content: space-between; }
+.review .ans .a { margin-top: 6px; font-size: 14px; }
+
+.review .steps h2 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.review .steps ol { list-style: none; padding: 0; position: relative; display: grid; gap: 10px; }
+.review .steps ol:has(li + li)::before { content: ""; position: absolute; left: 11px; top: 14px; bottom: 14px; width: 2px; background: var(--line); }
+.review .s { display: grid; grid-template-columns: 24px 1fr; gap: 14px; }
+.review .s .mark { width: 24px; height: 24px; border-radius: 50%; background: var(--surface); border: 2px solid var(--ok); display: grid; place-items: center; font-size: 11.5px; font-weight: 600; color: var(--ok); position: relative; }
+.review .s.miss .mark { border-color: var(--bad); color: var(--bad); }
+.review .s.thin .mark { border-color: var(--warn); color: var(--warn); }
+.review .s.ask .mark { border-color: var(--accent); color: var(--accent); }
+.review .s .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.review .s .claim { font-size: 14px; }
+.review .s .why { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+.review .s .why b { font-weight: 600; }
+.review .passage { margin-top: 8px; font-size: 13px; color: var(--ink-2); border-left: 2px solid var(--line); padding-left: 10px; }
+.review .passage span { display: block; color: var(--ink-3); font-size: 12px; }
+.review .passage span a { color: var(--accent); text-decoration: none; }
+.review .passage q { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.review .ans .src { margin-top: 8px; color: var(--ink-3); font-size: 12.5px; }
+.review .ans .src a { color: var(--ink-3); }
+.review .ovr { font: inherit; border: 0; background: none; padding: 0; color: var(--ink-2); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; margin-left: 6px; cursor: pointer; }
+.review .ovr-pick { font: 12.5px var(--sans); margin-left: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+.review .rec { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 18px; }
+.review .rec b { font-size: 15px; display: inline-flex; align-items: center; gap: 8px; }
+.review .rec.r-gap { background: var(--bad-t); border-color: #F1CDD1; } .review .rec.r-gap b { color: var(--bad); }
+.review .rec.r-format { background: var(--warn-t); border-color: #EFDAB8; } .review .rec.r-format b { color: var(--warn); }
+.review .rec.r-keep { background: var(--ok-t); border-color: #C6E2D3; } .review .rec.r-keep b { color: var(--ok); }
+.review .rec p { color: var(--ink-2); font-size: 13.5px; margin-top: 2px; }
+.review .rec .facts { color: var(--ink-3); font-size: 12.5px; margin-top: 6px; }
+.review .s.ask .card { border-color: #C9CFF3; }
+.review .decide { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.review .decide span { flex: 1; color: var(--ink-2); font-size: 13px; }
+
+/* a topic the question relies on that was only mentioned by its cutoff */
+.thin-note { background: var(--warn-t); border-radius: 8px; padding: 10px 14px; font-size: 13.5px; display: grid; gap: 4px; }
+.thin-note a { color: var(--accent); }
+.qctx { color: var(--ink-2); font-size: 13.5px; margin: 6px 0 2px; }
+.review .s.calc .card { background: var(--bg); }
+.review .s.calc .mark { border-color: var(--ink-3); color: var(--ink-3); }
+.review .s.calc code { font: 13px ui-monospace, Menlo, monospace; color: var(--ink); }
+
+/* list: group by, filter, column header and the 13-week grid */
+.view-bar { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-3); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; padding: 2px; background: var(--bg); }
+.seg button { border: 0; background: none; font: 500 12.5px var(--sans); color: var(--ink-2); padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+.seg button.on { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+.view-bar select { font: 12.5px var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; background: var(--surface); color: var(--ink); }
+.review .item, .review .cols-h { grid-template-columns: 44px minmax(0, 1fr) 40px 72px; }
+.review .cols-h { display: grid; gap: 10px; padding: 6px 20px; font-size: 11.5px; color: var(--ink-3); border-bottom: 1px solid var(--line); }
+.review .item .wk { overflow: hidden; text-overflow: ellipsis; }
+.wgrid { display: grid; grid-template-columns: repeat(4, 8px); gap: 2px; padding-top: 3px; }
+.wgrid i { width: 8px; height: 8px; border-radius: 2px; background: #E5E8EE; }
+.wgrid i.on { background: var(--accent); }
+.wgrid i.w13 { grid-column: 2 / 4; justify-self: center; }
+/* detail: the topics a question tests, by week */
+.topics-used { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: var(--surface); display: grid; gap: 6px; font-size: 13.5px; }
+.topics-used h3 { font-size: 13px; font-weight: 600; }
+.topics-used .row { display: grid; grid-template-columns: 64px 1fr; gap: 10px; }
+.topics-used .row b { color: var(--ink-2); font-weight: 500; }
+.topics-used a { color: var(--accent); text-decoration: none; }
+.review .detail .katex-display { overflow-x: auto; overflow-y: hidden; }  /* a long equation scrolls instead of widening the page */

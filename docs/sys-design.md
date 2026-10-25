@@ -40,7 +40,23 @@ This file is the single source of truth for the design.
 
 ## Stage 0: ingestion
 
-The professor uploads all their files. The week for each file is guessed from its filename, and the professor confirms it. Assessments are uploaded with their answers or marking material, and the professor states which weeks each one covers (its `week_cutoff`).
+The professor uploads all their files. The week for each file is guessed from its filename, and the professor confirms it. Assessments are uploaded with their answers or marking material, and the professor states which weeks each one covers (its `week_cutoff`) and its `current_format`.
+
+- **Upload together:** the upload screen tells the professor to select all the course's files in one upload.
+- **Adding files to a course:** a missed or corrected file is added from the materials screen of the course's latest version (an "Add files" button there), into that version (the version changes in place; no new version):
+  - The professor confirms the week of each added file, as on upload. Only the added files are converted, parsed and transcribed.
+  - A file with the same name as one already in the version replaces it: its pages, and any text corrections on them, are replaced.
+  - Everything else stays: other files' pages and corrections, the confirmed map, assessments and their confirmed questions, and earlier test-drive results.
+  - The version's `fingerprint` is recomputed from its files and weeks, so a later upload of the same set finds this version; its ID does not change.
+  - `materials_changed_at` is set. A notice shows on every screen it affects:
+    - Materials: new files were added on that date.
+    - Course map: new materials were added since the map was built; rebuild it. Only the weeks of the added files are re-extracted, and topic IDs stay the same.
+    - Summary and assessment review: these results are from before new materials were added. If the map hasn't been rebuilt and confirmed since, the notice says to do that first; otherwise, to rerun the test-drive.
+  - A map is outdated when it was built before `materials_changed_at`; a question's result is outdated when the test-drive that produced it ran before it. Assessments are not affected: question extraction reads only the assessment files.
+- **Deleting:**
+  - **A file** (materials screen): changes the version in place like adding files: its pages, and map evidence on them, are removed, the fingerprint is recomputed, `materials_changed_at` is set and the same notices show, naming the removed file. A version's last file can't be deleted.
+  - **An assessment** (assessments screen): its files and questions are removed, so they leave the review and the summary. Earlier test-drive results stay in the run logs but are no longer shown.
+  - **A course** (home screen, once per course): the course, all its versions with their stored files, and its run logs (`runs/<course_code>/`) are deleted, after the professor types the course code. Saved page transcriptions are not tied to a course and expire on their own. Single versions can't be deleted.
 
 **Parsing pipeline (one route for every file type):**
 1. **Upload:** `.pptx`, `.docx` and `.pdf`. Legacy `.ppt`/`.doc` are rejected with a request to re-save. Speaker notes and spreadsheets are left out.
@@ -51,13 +67,27 @@ The professor uploads all their files. The week for each file is guessed from it
    - it has very little text (likely a diagram drawn from shapes)
    - its text is mostly garbled characters (likely equations)
    - it has vector drawings (shape count from pypdfium2), which catches diagrams drawn from shapes that have many labels
-5. **Transcribe flagged pages:** pypdfium2 renders the whole page to an image, and Qwen3-VL 2B (one model, via Ollama, on the machine running the backend) returns the page as markdown: tables as markdown tables, equations as LaTeX, and diagrams described, covering only what's visible. Its output replaces the parser's text for that page and is marked `origin: vlm`. The report says when a step relies on a `vlm` passage.
-6. **Passages:** one page or slide is one passage (e.g. `CS1010-w5-slides-p12`), written to the course store with its `origin` (`parser` or `vlm`).
+5. **Transcribe flagged pages:** pypdfium2 renders the whole page to an image, and Qwen3-VL 2B Instruct (one model, via Ollama, on the machine running the backend) returns the page as markdown: tables as markdown tables, equations as LaTeX, and diagrams described, covering only what's visible. Its output replaces the parser's text for that page and is marked `origin: vlm`. Output is capped at 2,048 tokens; a page that hits the cap (a repetition loop) keeps the parser's text instead. Each page's output is saved as soon as it finishes (`data/transcriptions/<hash>.md`, keyed by model, prompt and page image, kept 30 days), so a retry after a failure transcribes only the pages not yet done. The Instruct model, not Thinking: Qwen reports it ahead on page parsing (OmniDocBench, CC-OCR, OCRBench), and it skips the reasoning tokens that made Thinking take minutes per page. The report says when a step relies on a `vlm` passage. While the files are read, the upload screen shows, for each file, how many of its flagged pages are transcribed. The model is unloaded after every 5 pages it transcribes: Ollama's runner grows by about 400 MB a minute on image requests (3.6 to 5.6 GB in 5 minutes on an 8 GB Mac), and unloading frees it for a few seconds' reload.
+6. **Passages:** one page or slide is one passage, with ID `<course>-w<week>-<file slug>-p<page>` (e.g. `CS1010-w5-slides-p12`). The file slug comes from the filename and is unique within a version, so two files in the same week can't collide. Written to the course store with its `origin` (`parser` or `vlm`).
+7. **Source files:** the PDF of each file (converted, or as uploaded) is kept at `data/files/<version_id>/<slug>.pdf` and served by the backend. Every passage citation in the UI links to it at that page (`#page=N`), opened in the browser's own PDF viewer.
+8. **Check and correct:** on the materials screen, and from any passage citation (course map evidence, review), clicking a page opens its text next to the page image (rendered as the VLM saw it). The professor can edit and save the text; it replaces the passage in place (origin unchanged) and later runs read the new text. A new version transcribes its pages afresh, so edits don't carry over. Adding files to the version keeps them, except on a file that is replaced.
 
 - Whole pages, not crops: no crop coordinates, no table border check, and nothing is clipped or missed when an element isn't detected.
 - Thresholds for "very little text" and "mostly garbled" are set during the build, checked on the demo courses.
-- Setup outside `uv sync`: LibreOffice, Java 11+ (for OpenDataLoader) and Ollama with `qwen3-vl:2b` (about 1.9 GB).
+- Setup outside `uv sync`: LibreOffice, Java 11+ (for OpenDataLoader) and Ollama with `qwen3-vl:2b-instruct` (about 1.9 GB). The Docker image (README) includes LibreOffice and Java; Ollama stays on the host so it can use the GPU.
 - Before relying on it, run one slide deck and one Word document from each demo course through the pipeline and check the flagged pages by eye.
+
+**Assessments into questions:**
+1. Assessment and answer files go through the same parsing pipeline, but are written to the separate assessments table (see Course store), never to `passages`.
+2. One LLM call per assessment splits the parsed paper and its answers into question records: question label, context, question text, options (if any), type and that question's marking material. Each sub-part (1a, 1b) is its own question.
+   - **Context:** text the question needs that isn't part of the question itself, such as a scenario, a data table or formulas shared by several questions. The split copies it verbatim into the `context` of every question it applies to; `text` keeps only the question. Each question carries its own copy: there is no shared record to link to, and the rows are written in one batch. The student, web agent and marker see the context, then the question. On the assessments screen, questions with identical context are shown under one context box, and saving it rewrites that context on all of them in one batch; editing one question's context on its own separates it from the group.
+   - **Question ID:** the label printed on the paper when it looks like a question number (e.g. "7", "1a", "Q3", "Question 2(b)"). If the paper prints no such label, the split returns none and code numbers the question by its position in the paper (q1, q2, …), so questions are never named after their content (e.g. a blank labelled "S_x").
+3. Code checks (fail loudly, flag for the professor):
+   - each question's text, and its context, appear verbatim in the parsed paper (checked separately)
+   - every question has marking material and every piece of marking material has a question
+4. The professor confirms or corrects the question list before any run, like the week guess.
+
+- Cached in the run log, so it reruns only when the files change.
 
 ## Stage 1: course map (extraction)
 
@@ -67,6 +97,8 @@ The professor uploads all their files. The week for each file is guessed from it
 1. **Passages (from stage 0):** one passage per page or slide, with stable IDs that include the course code (e.g. `CS1010-w5-slides-p12`), so citations are unambiguous when a prompt contains two courses. Passages are written to the course store (see Orchestration and storage).
 2. **Parallel extraction:** one LLM call per week, each seeing only its own week's passages with their IDs. Output is a list of concept records (format below), not a summary.
 3. **Orchestrator:** one LLM call receives all the weekly records and regroups them by topic. It merges duplicates, picks the standard name (the most precise term, not the earliest) and keeps other names as aliases.
+   - If the course has a previous reviewed version, its concepts (`concept_id`, name, aliases, from `concepts`) are injected as a reference for merging only: reuse an existing ID when a topic is the same, and add new concepts freely when a new topic is found.
+   - In map review, code lists the IDs that disappeared and the IDs that are new since the previous version, so a rename that slipped through shows up as one of each and the professor fixes it.
 4. **Professor review:** the professor confirms or corrects the map before the test-drive runs.
 5. **Index and contextual headings (code):** after review, reverse the merged map's `evidence` lists into a passage-to-topic index, and give each passage a contextual heading built from it (course, week, file, and its topics' standard names and aliases). Both are stored in the course store and rebuilt whenever the map changes. Passages no topic claimed get a heading without topics.
 
@@ -112,7 +144,7 @@ The professor uploads all their files. The week for each file is guessed from it
 
 Calculating these on demand keeps them in step with the map after a professor corrects it. The passage-to-topic index is the exception: retrieval needs it on every lookup, so it's stored (step 5) and rebuilt whenever the map changes.
 
-**Updates:** when a week is edited, re-extract only that week and match its topics to the existing concept IDs, so comparisons between versions stay stable. Do a full rebuild once per semester.
+**Updates:** when a week is edited, only that week's extractor call reruns (the others are cached by fingerprint). The orchestrator reruns with the previous version's concepts as reference (step 3), so concept IDs stay stable across versions. Do a full rebuild once per semester.
 
 ## Stage 2 and 3: test-drive and verification
 
@@ -121,14 +153,16 @@ Calculating these on demand keeps them in step with the map after a professor co
 - **Web agent:** runs once. LLM with web search, standing in for a student using AI to answer.
 - **Grounding checker:** a code check, then an isolated LLM call. Verifies `course` and `prerequisite` steps only.
 - **Marker:** gives each final answer a verdict (`correct` / `partial` / `incorrect`) and a one-line reason. Marking only feeds the exposure table. Coverage and grounding don't depend on it.
-  - **Multiple choice and true/false:** exact match in code.
+  - **Multiple choice and true/false:** exact match in code. Every agent sees "final_answer: only the option letter." or "final_answer: only \"True\" or \"False\"." after the question (naming the field matters: "Answer only …" made the student drop its steps), and its prompt keeps explanations out of `final_answer`.
+    - Matching ignores case, punctuation, markdown and link citations; an option's letter and its text count as the same answer.
+    - An answer in no allowed form is marked `incorrect` with `unclear: true`. Assessment review shows it as "Check answer" so the reviewer overrides the verdict. No retry.
   - **Short answer, numeric and open-ended:** an LLM marker. It sees the question, the professor's marking material and one final answer. It doesn't see the steps, and it doesn't know which agent wrote the answer.
   - **Phrasing bias, handled without engineering:**
     - the marker accepts the professor's existing marking material in any format (model answer, rubric, marking scheme), passed through as is with no restructuring
     - the marker is told to ignore phrasing, length and style, and to judge meaning against the marking material, whatever its form
     - both agents are told to answer concisely, as in an exam
     - the professor can override any verdict in the report
-  - **Code questions:** roadmap (run against test cases).
+  - **Code questions:** excluded from the MVP. No agent runs on them, and the report lists them as "not assessed (code question)". Running them against test cases is on the roadmap.
   - **No answer key:** run coverage and grounding only. Report AI exposure as "not assessed". Don't generate model answers.
   - The marker and the grounding checker are both LLM judges with custom prompts. No evaluation framework.
 
@@ -139,9 +173,13 @@ Calculating these on demand keeps them in step with the map after a professor co
   ```
 - **Lookup tool:** `lookup_concept(topic_ids)`. `topic_ids` is an enum of the listed IDs, so the student can't ask for a topic that doesn't exist. Code returns every passage tagged with those topics from weeks up to N (and the prerequisite), each with its passage ID and contextual heading.
 - **Calling is optional:** zero calls is valid. If no listed topic fits, the student answers with what it has and labels the steps `none` or `assumed_knowledge`. Up to about 5 calls per question, capped in code.
-- **Re-check of uncited steps (code):** before a `none` or `assumed_knowledge` step is accepted, code runs an FTS5 keyword search using the step's claim, over all passages up to week N (headings included, so aliases match). If it finds passages, the student gets them and re-checks that one step, which may become `course` or `prerequisite`. If it finds nothing, the label stands. This catches topics the student overlooked and passages the extractor never tagged.
+- **Calculator tool:** `calculate(expression)` evaluates arithmetic exactly (numbers, `+ - * / % **` (or `^`), brackets, `sqrt`, `log`, `exp`, `abs`, `round`; parsed, never `eval`'d), at most 30 calls per question. The prompt tells the student to use it for every calculation, as a student would use a calculator in the exam. An expression it can't read (e.g. with `?` placeholders) is answered with what to do (work out the missing values first, then send numbers), and an expression that already failed isn't evaluated again. Each call carries a short label (what the result is, e.g. "S_xy"). Every distinct successful calculation becomes a step after the knowledge steps, with `source: "calculation"` and the claim "label: expression = result", so the professor can see which numbers went in. Calculation steps are never grounded, never a gap, and not counted as knowledge steps (lookup or reasoning). Without it the student model made long-hand slips (e.g. 1² + … + 10² = 285) that the grid then read as "needs untaught knowledge".
+- **Re-check of uncited steps:** a single pass after the student answers, not a loop. This catches topics the student overlooked and passages the extractor never tagged.
+  1. For each `none` or `assumed_knowledge` step, code runs one FTS5 keyword search using the step's claim, over passages within the week limit (headings included, so aliases match). Each word of the claim is quoted, since raw text like "n = 2k + 1" is invalid FTS5 syntax.
+  2. Steps with no hits keep their label, with no call.
+  3. If any steps have hits, code continues the student's own conversation with one more message holding the found passages for those steps. The student returns corrected labels for them (each may become `course` or `prerequisite` with evidence), seeing the question and its other steps. One call per question, and the unchanged conversation prefix is billed at the cached rate.
 - The week limit is enforced in code: the agent never sees anything after week N.
-- **N** is the `week_cutoff` of the assessment component (e.g. a Week 6 quiz gives N = 6; the final exam covers all weeks). The professor states it when uploading the assessment and its answers.
+- **N** is the `week_cutoff` of the assessment (e.g. a Week 6 quiz gives N = 6; the final exam covers all weeks). The professor states it when uploading the assessment and its answers.
 - Put the topic list first and the question last, so questions with the same `week_cutoff` share a cached prompt prefix (OpenAI charges cached input at a lower rate).
 
 **Student output (the steps are shown to the professor):**
@@ -153,24 +191,32 @@ Calculating these on demand keeps them in step with the map after a professor co
   "final_answer": "B",
   "steps": [
     { "step_id": "q07-s1", "claim": "A recursive function needs a base case.", "source": "course", "evidence": ["CS1010-w5-slides-p12"] },
-    { "step_id": "q07-s2", "claim": "Rearranging gives n = 2k + 1.", "source": "assumed_knowledge", "reason": "The entry requirement is A-level maths, which covers basic algebra." },
+    { "step_id": "q07-s2", "claim": "A square matrix is invertible exactly when its determinant is non-zero.", "source": "assumed_knowledge", "reason": "Linear algebra is a stated prerequisite of the course." },
     { "step_id": "q07-s3", "claim": "Memoisation caches results.", "source": "none" }
   ]
 }
 ```
 
+- **Every answer has at least one step,** so the reader always sees what it rests on (an empty list hid knowledge the student used without declaring it). Knowledge that needs no source is a `general_knowledge` step: assumed knowledge that needs no confirming. It is shown in the review but never grounded, never a gap, never asked about and not counted as a knowledge step.
+- **School-level knowledge is general knowledge:** every university student is taken to know secondary-school and pre-university (A-level/JC) mathematics and general knowledge, e.g. arithmetic, basic algebra, reading a table, substituting values into a formula the question gives. Anything printed in the question itself (its data, tables and any formula it gives) needs no source either. Inside a course step these are folded into its claim; an answer that rests only on them (e.g. computing a value from a formula and data printed on the paper) has one `general_knowledge` step saying so ("S_x is the sum of the x column, as the question defines it"). They are never assumed knowledge for the professor to confirm, nor gaps. The prompt forbids `general_knowledge` for subject knowledge of the course; a student that hides course knowledge there is visible in the review, not caught automatically.
+- **Taught in class:** the exception to that rule. When the question says something was taught in class (e.g. "the normal equations discussed in class") and the answer uses it, knowing it is a step even if the question prints it, and is sourced like any other step: if the passages up to the week don't teach it, it is `none` (a gap). A part that doesn't use it (e.g. one that only asks for a sum from the table) gets no such step. The required knowledge finder follows the same rule (Evaluation).
+- **Mathematics in answers** (student and web agent) is LaTeX inside `\( \)` or `\[ \]`, so the report renders it.
 - No `status` field. Coverage comes from the steps (any `none` step is a gap) and correctness from the marker, so the student can't contradict itself.
 - `final_answer` is `null` if the student can't attempt the question; it still lists the steps it managed.
 - `source` is one of:
   - `course`: must cite passages from weeks 1 to N
   - `prerequisite`: must cite passages from the prerequisite course
-  - `assumed_knowledge`: must give a one-line reason
+  - `assumed_knowledge`: must give a one-line reason, or the `accepted_id` of an accepted claim
   - `none`: no source
+  - `calculation`: added by code from the calculator's calls, not chosen by the student (see Retrieval)
 - Use `prerequisite` whenever the material exists there. Use `assumed_knowledge` only when it doesn't.
 - **The student's system prompt must state the difference between `assumed_knowledge` and `none` explicitly:**
-  - `assumed_knowledge`: something implied by the course's stated entry requirements (e.g. A-level maths, or the prerequisite course) that isn't in the provided materials. It must come with a one-line reason.
+  - `assumed_knowledge`: something beyond pre-university level that the course's stated entry requirements imply (e.g. its prerequisite course) but that isn't in the provided materials. It must come with a one-line reason.
   - `none`: subject knowledge the answer needs that the student wouldn't already know and can't find in the course or prerequisite materials.
   - Include a short example of each in the prompt, and tell the agent to choose `none` when it's unsure.
+- **Decided claims in the prompt:** the student's system prompt lists the course's assumed-knowledge decisions, each with its ID:
+  - accepted: the student may rely on them. A step that does is labelled `assumed_knowledge` with `"accepted_id": <id>` instead of a reason.
+  - rejected: students are not assumed to know these. A step that needs one is labelled `none`.
 - List only steps that bring in knowledge. Fold pure reasoning into those steps' claims.
 - Don't include a self-reported confidence field.
 
@@ -199,13 +245,11 @@ Calculating these on demand keeps them in step with the map after a professor co
 
 **Single run per agent (deliberate limitation):** each agent runs once per question at temperature 0. Repeated runs would reduce noise but triple the cost and add merging logic. This isn't warranted for the MVP, and is consistent with common LLM-as-judge practice. Stated under Limitations in the report and the documentation.
 
-**Answer key:** for each question:
-- the professor's existing marking material, in whatever form they have it (correct option, model answer, rubric). No required format.
-- the assessment component it belongs to, and that component's `week_cutoff`
-- `current_format` (take-home / online quiz / invigilated exam)
-- `must_stay_open` (yes/no, for projects and reports)
-- an optional `intended_approach`, used to flag correct answers reached by an unintended route
-- optional marks
+**Answer key:**
+- for each question (from the split in stage 0):
+  - the professor's existing marking material, in whatever form they have it (correct option, model answer, rubric). No required format. Any marks it states stay in it as context for the marker.
+  - the assessment it belongs to
+- for each assessment, entered by the professor at upload: `week_cutoff` and `current_format` (take-home / online quiz / invigilated exam)
 
 **How each source is checked:**
 
@@ -215,9 +259,19 @@ Calculating these on demand keeps them in step with the map after a professor co
 | `none` | Professor | Main findings: a gap or a missing prerequisite |
 | `assumed_knowledge` | Professor (light review) | Low-priority section, "assumed, not yet confirmed". Not counted as a gap until rejected. |
 
-Professor decisions are saved:
-- **accepted:** the item goes on the course's assumed-knowledge list and is skipped in future runs
-- **rejected:** the item becomes a gap in future runs
+Professor decisions are saved (in `assumed_knowledge`, see Course store) and given to the student in later runs (see Student output):
+- **accepted:** the student cites it by `accepted_id`, and the step is skipped in review
+- **rejected:** the student labels that knowledge `none`, so it becomes a gap
+- A claim the student doesn't recognise as decided comes back to the professor as new. The worst case is reviewing it twice, never a wrong skip.
+- Each decision changes the student's prompt, so the next run reruns the student on every question. Professors should finish a review before rerunning.
+
+**Gap (code), per question:** a question has a gap if any of these holds:
+- a step is `none` (including knowledge the professor rejected)
+- a `course` or `prerequisite` step is `unsupported` by the grounding checker
+
+A grounding `partial` is shown as a weak citation, not a gap. Unreviewed `assumed_knowledge` is not a gap.
+
+**Right and wrong:** only a `correct` verdict counts as right; `partial` and `incorrect` count as wrong. The report still shows the actual verdict.
 
 **AI exposure (code):**
 
@@ -226,34 +280,36 @@ Professor decisions are saved:
 | **Student right** | AI-exposed | Good: depends on course-specific context |
 | **Student wrong** | Needs knowledge that's neither taught nor declared | Broken question, or a gap |
 
-- Exposure, combined with lookup versus reasoning (how many passages and steps the student needed), gives the advisory format recommendation.
+**Lookup or reasoning (code):** the number of the student's knowledge steps. One or fewer is lookup; two or more is reasoning. Steps list only knowledge brought in, with pure reasoning folded in (see Student output), so the count measures how much knowledge had to be combined. A heuristic, stated under Limitations.
 
-**Recommendation rules (code):**
+**Recommendation rules (code):** applied in order, first match wins.
 
-| Evidence | Recommendation |
-|---|---|
-| Not AI-exposed, needs reasoning | **Keep it open or take-home:** it already certifies learning |
-| AI-exposed, lookup or recall | **Closed-book, invigilated** |
-| AI-exposed, reasoning that doesn't depend on the course | **Open-book invigilated**, or redesign it to use course-specific material |
-| AI-exposed and `must_stay_open` | **Add a check:** oral defence, staged submissions or an in-class component |
-| Coverage gap (whatever the exposure) | **Fix coverage first,** then reassess |
+| # | Evidence | Recommendation |
+|---|---|---|
+| 1 | Gap | **Fix coverage first,** then reassess |
+| 2 | No answer key | AI exposure "not assessed", no format recommendation |
+| 3 | Student wrong, web right | **Review:** needs knowledge that's neither taught nor declared |
+| 3 | Student wrong, web wrong | **Review:** the question may be broken |
+| 4 | Student right, web wrong | **Keep it open or take-home:** it already certifies learning |
+| 5 | AI-exposed, lookup | **Closed-book, invigilated** |
+| 5 | AI-exposed, reasoning | **Open-book invigilated**, or redesign it to use course-specific material |
 
+- Code questions skip all rules and are reported as "not assessed (code question)".
+- Both rule 5 lines add: "or, if it must stay open, add a check: oral defence, staged submissions or an in-class component". The professor chooses.
 - If the recommendation matches `current_format`, report "keep as is".
 - The value is in knowing which questions can stay open, not in putting everything under invigilation.
 - Wording is advisory, e.g. "if AI use isn't intended, consider...".
-- Include web-search tool fees in the cost estimate.
 
 **Roadmap:** "what if" scenarios, e.g. a student who hasn't taken prerequisite X (for waivers and students from other faculties). Same agent, with that prerequisite's materials removed.
 
 ## Stage 4: course report
 
 Combined in code from the stage 2 and 3 outputs and the course map:
-1. **Summary:** verdict, key figures, top actions.
-2. **Assessment review (main):** for each component and question: coverage, AI exposure, lookup or reasoning, intended method, and a recommendation (keep / change format / redesign / add a check).
-3. **Learning path:** gaps, concepts only mentioned but assessed, concepts taught but never assessed. Each question's concepts are worked out in code from the student's citations: each cited passage maps to the concept records that list it as evidence. There is no separate question-mapping step. **Only mentioned but assessed:** every topic has a `depth` for each occurrence (week), set by the extractor in stage 1. For each concept a question uses (found from the student's citations), take its deepest level in any week up to the question's `week_cutoff`. If that is only `mentioned`, flag it, e.g. "the final exam relies on the call stack, only mentioned in week 5, slide 13". The grounding checker can't catch this, because a passing mention still supports the step. Depth labels are the extractor's judgement, and a light mention may be intentional, so this is reported for the professor to consider, not as an error. "Ordering problems" (a concept used before it's taught) are not a separate finding: the student never sees later weeks, so these appear as `none` flags and the professor recognises them in review.
+1. **Summary:** verdict, key figures (including topics never assessed), top actions, the exposure grid, and coverage across the semester (section 3).
+2. **Assessment review (main):** for each assessment and question: coverage, AI exposure, lookup or reasoning, and a recommendation (see Recommendation rules).
+3. **Coverage across the semester** (shown on the Summary; no tab of its own). A chart of the topics introduced each week, split into assessed by any question and never assessed, with a dotted line at the last week each assessment covers; below it, the never-assessed topics for the weeks before each assessment. Gaps are already in the assessment review and the summary's actions, and "only mentioned but assessed" is shown on the question in the assessment review, so neither is repeated here. Each question's concepts are worked out in code from the student's citations: each cited passage maps to the concept records that list it as evidence. There is no separate question-mapping step. Limitation (stated in the report): a concept used only in an `assumed_knowledge` or `none` step isn't counted as assessed, and a cited passage tagged with several concepts counts all of them. **Only mentioned but assessed:** every topic has a `depth` for each occurrence (week), set by the extractor in stage 1. For each concept a question uses (found from the student's citations), take its deepest level in any week up to the question's `week_cutoff`. If that is only `mentioned`, flag it on that question in the assessment review, e.g. "the final exam relies on the call stack, only mentioned in week 5, slide 13". The grounding checker can't catch this, because a passing mention still supports the step. Depth labels are the extractor's judgement, and a light mention may be intentional, so this is reported for the professor to consider, not as an error. "Ordering problems" (a concept used before it's taught) are not a separate finding: the student never sees later weeks, so these appear as `none` flags and the professor recognises them in review.
 4. **Assumed knowledge to confirm.**
-5. **Changes since the last run.**
-6. **Method and limitations.**
+5. **Method and limitations.**
 
 ## Orchestration and storage
 
@@ -262,46 +318,190 @@ Combined in code from the stage 2 and 3 outputs and the course map:
 2. Professor review of the map. The run waits here.
 3. For each question, with questions running in parallel:
    1. the student agent (with its topic lookups) and the web agent run at the same time
-   2. the re-check runs on each uncited step
+   2. the re-check: keyword search on each uncited step, then at most one continued student call
    3. the grounding checker runs on each cited step (checks in parallel)
    4. the marker runs once per final answer (student and web agent marked in separate calls)
 4. The report is assembled in code.
+
+**Reruns:** a test-drive runs either every confirmed question, or only the questions the professor picks (a per-question rerun from the assessment review). Questions whose inputs haven't changed come from the run log either way, at no cost.
+- Results are never stored as a separate report: the assessment review, the summary and the coverage panel are recomputed from the runs each time they load, so any rerun shows up on the next load with nothing to regenerate.
+- Each question shows its latest result across the version's runs, so after a per-question rerun the report mixes results from different runs.
+- The "results outdated" notice (Stage 0, "Adding files to a course") is therefore counted per question: e.g. "4 of 6 questions are from before Lecture2.pdf was added".
+- The method page shows the latest run's facts and cost, and every run of the course (all versions: course maps, question splits, test-drives) with its new calls, web searches and cost, and their total.
 
 **Implementation:**
 - Plain Python with `asyncio` and the OpenAI SDK.
 - No agent framework, because the flow is fixed. The only choice an agent makes is which topics the student looks up, handled by a small tool-call loop in code.
 - A few calls at once, to stay within rate limits, with automatic retries on failure.
 - OpenAI structured outputs (JSON schemas) for every agent.
+- **Models** (all at reasoning effort `none`, so temperature 0 can be set):
+  - `gpt-6-luna`: weekly extractors, question split, student agent, re-check, grounding checker, marker
+  - `gpt-6-sol`: orchestrator (one call per course, and every later stage depends on the map)
+  - `gpt-6-sol` with the Responses API `web_search` tool: web agent. A weak model would underrate AI exposure, since it stands in for a student using AI.
 
 **Course-level versioning:**
 - The course code is the ID that groups all versions of a course (e.g. `CS1010`).
-- Every re-upload creates a new version (identified by a fingerprint of its materials) under the same course code. A handover is a new version uploaded by a different professor.
-- "Changes since the last run" compares the latest version with the previous one under the same course code.
+- Every upload or week correction creates a new version (found again by a fingerprint of its materials and their confirmed weeks) under the same course code. A handover is a new version uploaded by a different professor.
+- Adding files to a course changes its latest version in place (Stage 0, "Adding files to a course").
 - The cache is shared across all versions of a course, so unchanged weeks reuse earlier results.
 
 **Run log (cache and trace):**
-- One JSONL file per run (`runs/<course_code>/<version>/<run_id>.jsonl`), with one record per call: the fingerprint of its inputs (prompt version, model, content), the call type, the question ID and the full output.
+- One JSONL file per run (`runs/<course_code>/<version>/<run_id>.jsonl`). The first line is the run configuration (target version, prerequisite version). Then one record per call: the fingerprint of its inputs, the call type, the question ID, the token usage (and web-search calls) and the full output. Cached results add no cost.
 - Written as each call finishes, so an interrupted run resumes where it stopped.
-- At the start of a run, earlier records are loaded by fingerprint. Identical inputs reuse the stored result, so editing week 4 reruns only questions with `week_cutoff` of 4 or later.
-- Store a reference to the course content (the course version's fingerprint plus `week_cutoff`), not the full prompt. The materials are stored once.
+- **Fingerprint = a hash of the content the call can see**, plus the prompt version and model. Not the course version, so a call reruns only when its own inputs change:
+  - student agent: the question (with its context), the topic list, the decided assumed-knowledge claims, and every passage (text and heading) it could look up, i.e. target weeks 1 to N plus the prerequisite. A map edit changes the topic list and headings, so it reruns.
+  - web agent: the question only
+  - re-check: the student's conversation plus the found passages
+  - grounding checker: the step and its cited passages
+  - marker: the question, the marking material and the final answer
+- At the start of a run, earlier records under the same course code are loaded by fingerprint. Identical inputs reuse the stored result, so editing week 4 reruns only questions with `week_cutoff` of 4 or later.
+- The record stores the fingerprint, not the full prompt. The materials are stored once, in the course store.
 - Web agent results depend only on the question, so they're reused when the materials change.
 - The report or dashboard reads from the run log.
+- **Cost reporting:** each run reports its actual cost (tokens per call type and web-search calls, summed from the run log). No up-front estimate.
 
 **Course store (SQLite):**
-- One SQLite file per course version (`data/<course_code>/<version>/course.db`), holding:
-  - `passages`: passage ID, course, week, file, text and `origin` (`parser` / `vlm`), written at ingestion
-  - the merged course map, the passage-to-topic index and each passage's contextual heading, written after professor review
-  - an FTS5 table over headings and text, for the keyword re-check (BM25 ranking)
-- The week limit is a SQL filter (`course IN (target, prerequisite) AND week <= N`), applied to both lookups and the re-check.
+- One SQLite file for the whole project (`data/noodles.db`). Every course and version lives in it as rows keyed by `version_id`.
+- Written at ingestion (materials, assessments), after the question split, and after professor review (map, headings, page text corrections). Agent calls write to the run log, not here.
+
+```sql
+-- Courses and versions
+CREATE TABLE courses (
+  code TEXT PRIMARY KEY                       -- e.g. CS1010
+);
+
+CREATE TABLE versions (
+  id TEXT PRIMARY KEY,                        -- the fingerprint at creation (a random ID if a changed version holds it); never changes
+  course_code TEXT NOT NULL REFERENCES courses(code),
+  created_at TEXT NOT NULL,
+  fingerprint TEXT NOT NULL UNIQUE,           -- of the current materials and their confirmed weeks; updated when files are added
+  materials_changed_at TEXT,                  -- NULL until files are added after creation
+  removed_files TEXT,                         -- JSON array of files deleted since creation, for the notices
+  map_reviewed_at TEXT                        -- NULL until the professor confirms the map
+);
+
+-- Stage 0: course materials (the only content the student can reach)
+CREATE TABLE files (
+  version_id TEXT NOT NULL REFERENCES versions(id),
+  slug TEXT NOT NULL,                         -- unique within a version; used in passage IDs
+  filename TEXT NOT NULL,
+  week INTEGER NOT NULL,                      -- professor-confirmed
+  sha256 TEXT,                                -- of the uploaded bytes, for the version fingerprint
+  added_at TEXT,                              -- NULL for files in the original upload
+  PRIMARY KEY (version_id, slug)
+);
+
+CREATE TABLE passages (
+  version_id TEXT NOT NULL,
+  passage_id TEXT NOT NULL,                   -- e.g. CS1010-w5-lecture05-p12
+  file_slug TEXT NOT NULL,
+  week INTEGER NOT NULL,
+  page INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  origin TEXT NOT NULL CHECK (origin IN ('parser', 'vlm')),
+  heading TEXT,                               -- contextual heading, rebuilt after map review
+  UNIQUE (version_id, passage_id),
+  FOREIGN KEY (version_id, file_slug) REFERENCES files(version_id, slug)
+);
+
+CREATE VIRTUAL TABLE passages_fts USING fts5(
+  heading, text, content='passages'           -- keyword re-check, BM25
+);
+
+-- Stage 1: reviewed course map (professor edits these rows directly)
+CREATE TABLE concepts (
+  version_id TEXT NOT NULL,
+  concept_id TEXT NOT NULL,                   -- e.g. CS1010:recursion, stable across versions
+  name TEXT NOT NULL,
+  aliases TEXT NOT NULL DEFAULT '[]',         -- JSON array
+  description TEXT,
+  PRIMARY KEY (version_id, concept_id)
+);
+
+CREATE TABLE occurrences (
+  version_id TEXT NOT NULL,
+  concept_id TEXT NOT NULL,
+  week INTEGER NOT NULL,
+  depth TEXT NOT NULL CHECK (depth IN ('mentioned', 'explained', 'worked_example', 'practised')),
+  PRIMARY KEY (version_id, concept_id, week)
+);
+
+CREATE TABLE evidence (                       -- this IS the passage-to-topic index
+  version_id TEXT NOT NULL,
+  concept_id TEXT NOT NULL,
+  passage_id TEXT NOT NULL,
+  PRIMARY KEY (version_id, concept_id, passage_id),
+  FOREIGN KEY (version_id, passage_id) REFERENCES passages(version_id, passage_id)
+);
+CREATE INDEX evidence_by_passage ON evidence (version_id, passage_id);
+
+-- Assessments (never read by student-facing queries)
+CREATE TABLE assessments (
+  version_id TEXT NOT NULL,
+  assessment_id TEXT NOT NULL,                 -- e.g. week6-quiz
+  week_cutoff INTEGER NOT NULL,
+  current_format TEXT NOT NULL CHECK (current_format IN ('take_home', 'online_quiz', 'invigilated_exam')),
+  PRIMARY KEY (version_id, assessment_id)
+);
+
+CREATE TABLE assessment_files (               -- parsed paper and answers, input to the split
+  version_id TEXT NOT NULL,
+  assessment_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('paper', 'answers')),
+  filename TEXT NOT NULL,
+  text TEXT NOT NULL
+);
+
+CREATE TABLE questions (                      -- output of the split, professor-confirmed
+  version_id TEXT NOT NULL,
+  question_id TEXT NOT NULL,                  -- e.g. q07, q07a; by position (q1, q2) if the paper prints no number
+  assessment_id TEXT NOT NULL,
+  context TEXT,                               -- scenario, data or formulas the question needs, copied per question; NULL if none
+  text TEXT NOT NULL,
+  options TEXT,                               -- JSON array, NULL if none
+  type TEXT NOT NULL CHECK (type IN ('mcq', 'true_false', 'short', 'numeric', 'open', 'code')),
+  marking_material TEXT,                      -- NULL = no answer key
+  PRIMARY KEY (version_id, question_id)
+);
+
+-- Professor decisions
+CREATE TABLE assumed_knowledge (              -- per course, so it carries across versions
+  id INTEGER PRIMARY KEY,                     -- cited by the student as accepted_id
+  course_code TEXT NOT NULL REFERENCES courses(code),
+  claim TEXT NOT NULL,
+  decision TEXT NOT NULL CHECK (decision IN ('accepted', 'rejected')),
+  decided_at TEXT NOT NULL
+);
+
+CREATE TABLE verdict_overrides (              -- tied to one run; a rerun's new answers have none
+  run_id TEXT NOT NULL,
+  question_id TEXT NOT NULL,
+  agent TEXT NOT NULL CHECK (agent IN ('student', 'web')),
+  verdict TEXT NOT NULL CHECK (verdict IN ('correct', 'partial', 'incorrect')),
+  PRIMARY KEY (run_id, question_id, agent)
+);
+```
+
+- **Run inputs:** `:target` (a version of the course under test), `:prereq` (the prerequisite course's latest version with `map_reviewed_at` set, or none) and `:n` (the question's `week_cutoff`).
+- **Week limit:** `(version_id = :target AND week <= :n) OR version_id = :prereq`, applied to topic-list, lookup and re-check queries. The prerequisite is never cut by week.
+- **Student-facing queries** read only `passages`, `passages_fts`, `concepts`, `occurrences` and `evidence`. The assessment tables never appear in them (enforced in code).
+- **FTS sync:** `passages_fts` is external-content, so code runs `INSERT INTO passages_fts(passages_fts) VALUES('rebuild')` after ingestion and after every heading rebuild.
+- Foreign keys are enforced (`PRAGMA foreign_keys = ON` on every connection), so evidence can't point at a passage from another version.
+- **Map corrections** edit `concepts`, `occurrences` and `evidence` directly. The orchestrator's draft stays in the run log.
+- **Derived fields** (week introduced, deepest depth up to a cutoff) are calculated from `occurrences` in queries, never stored.
 - No embeddings and no vector extension.
 - No server: Python's built-in `sqlite3` opens it. `data/` is never committed.
 - The run log stays JSONL. SQLite is for data the system queries; the log is written once and read in order.
 
-**UI (decided):** a FastAPI backend with a React front end, chosen so the look and feel of the dashboard can be fully customised. The backend runs the pipeline and serves results from the run log, and the front end shows the course report as a dashboard.
+**Users:** one user, no auth.
+
+**UI (decided):** a FastAPI backend with a React front end, chosen so the look and feel of the dashboard can be fully customised. The backend runs the pipeline and serves results from the run log, and the front end shows the course report as a dashboard. The API, screens and how long-running jobs report progress are defined in the slice specs. In the Docker image, the backend also serves the built front end on the same port.
 
 ## Evaluation
 
 Required for the documentation's Evaluation section: test cases or metrics, a baseline comparison, examples and edge cases.
+
+Evaluation is not part of the product: no screen or sidebar entry, since professors never have a reference set. It runs as scripts beside the app, and its files live under `data/` so they are never committed (they contain course passages). Slice spec: `docs/specs/13-evaluation.md`; step-by-step walkthrough, validity, limitations and pilot results: `docs/eval/`.
 
 **1. Perturbed set (gold standard): tests that flagging works.**
 - One demo course with 5 to 10 planted coverage problems, e.g. delete an explanation, add a question on an untaught topic, reduce a worked example to a passing mention.
@@ -310,18 +510,19 @@ Required for the documentation's Evaluation section: test cases or metrics, a ba
 - Metrics: detection rate and false flags, for coverage and exposure separately.
 
 **2. Reference set (silver standard): tests the whole pipeline on an unmodified course.**
-- Generated once by Claude Code with a strong model. For each question it receives the question, **the answer key** and the same week-limited materials as the student agent.
+- Generated once by the **required knowledge finder**: Claude Code with a strong model, a reverse student that works back from the answer. For each question it receives the question, **the answer key** and the same week-limited materials as the student agent.
+- One entry per question, traced against the materials up to its own assessment's week. With a quiz each week, entries are added as each week's quiz arrives; earlier entries stay frozen.
 - Its task is to **trace the known answer to the materials**, not to solve the question. For each step it records the knowledge needed, the supporting passage IDs or `not in materials`, and an overall coverage verdict. Optionally it also lists the topics taught in each week, which lets us measure extraction completeness.
-- Run several times and merged (an LLM may do the merging), keeping `not in materials` whenever runs disagree. Then frozen.
+- Run 3 times per question, each in a fresh context, and merged in code: the verdict is a gap if any run has a `not in materials` step, and the reference passages are those cited by at least 2 of the 3 runs. Then frozen.
 - The prompt forbids stretching citations: "if no passage supports a step, write `not in materials`".
-- Follow `intended_approach` where one is given. Questions without an answer key are left out.
+- Questions without an answer key are left out.
 - Metrics:
   - **coverage agreement** (main): the gap or no-gap verdict for each question matches the reference
   - **answer correctness**
   - **citation recall** (secondary): a valid alternative route can lower it without being wrong
   - optionally, **extraction completeness**
 - AI exposure isn't part of the reference. It's covered by the perturbed set.
-- Name it a silver standard and state its limitations. It comes from a different model family (Claude) from the system (GPT-4.1-mini), which reduces the risk of a model favouring its own reasoning.
+- Name it a silver standard and state its limitations. It comes from a different model family (Claude) from the system (OpenAI GPT-6 Luna and Sol), which reduces the risk of a model favouring its own reasoning.
 
 **3. Live demo:** the final presentation runs on the presenting professor's own course notes, with their approval.
 - Results are prepared in advance and served from the run log, not run live.
@@ -330,13 +531,14 @@ Required for the documentation's Evaluation section: test cases or metrics, a ba
 
 **4. Documentation examples:** 2 to 3 dashboard screenshots from the evaluation runs, including one false flag as the edge case.
 
-**Q&A to prepare:** "If a strong model can build the reference, why do we need the product?" Building it took repeated runs, merging and checking: a one-off research effort, not something a professor can do weekly. The product does it in one repeatable, week-limited run, and adds AI exposure, recommendations, change tracking and the dashboard.
+**Q&A to prepare:** "If a strong model can build the reference, why do we need the product?" Building it took repeated runs, merging and checking: a one-off research effort, not something a professor can do weekly. The product does it in one repeatable, week-limited run, and adds AI exposure, recommendations and the dashboard.
 
 ## Roadmap (build if time allows, otherwise list as future work)
 
 - **Telemetry:** self-hosted Langfuse, or LangSmith with non-sensitive data only. Both can wrap the plain OpenAI SDK, with no LangChain needed. Developer debugging and cost per run only. The report still comes from the run log.
 - **Embedding grouping before the orchestrator,** for larger courses where the orchestrator's input gets too long.
 - **Code merge checks:** each record in exactly one group; flag merges of records the same week listed separately; flag weak or near-duplicate groups; names appear in the cited passages; output is the same when rerun or when week order is shuffled.
+- **Code questions:** run the student's and web agent's code against test cases.
 - **Topic dependencies** (`uses`) and a prerequisite graph, if a later feature needs them.
 - **Metamorphic self-tests:**
   - remove a worked example, and that concept's depth should go down

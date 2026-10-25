@@ -1,0 +1,684 @@
+"""FastAPI app. Run: uv run uvicorn --factory noodles.api:from_env --reload"""
+import asyncio
+import json
+import os
+import re
+import uuid
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Literal
+
+import shutil
+import tempfile
+
+from fastapi import FastAPI, Form, HTTPException, UploadFile
+import pypdfium2
+from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from noodles import db
+from noodles.assessments import FORMATS, QuestionsError, SplitQuestion, confirmed_questions, flags, save_questions, split
+from noodles.coursemap import Concept, MapError, build_map, load_map, save_map
+from noodles.llm import OpenAIClient, Run, find_log, now, read_log
+from noodles.ollama import Ollama, OllamaError
+from noodles.student import test_drive
+from noodles.web import Verdict, exposure
+from noodles.cost import run_cost
+from noodles.report import recommend, summary, topic_coverage
+from noodles.ingest import FingerprintTaken, IngestError, LastFile, add_files, remove_file, check_upload_name, guess_week, ingest, page_png, read_document, slugify
+
+ID = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+class QuestionsBody(BaseModel):
+    questions: list[SplitQuestion]
+
+
+class MapBody(BaseModel):
+    concepts: list[Concept]
+
+
+class TestDriveBody(BaseModel):
+    prerequisite: str | None = None  # course code; its latest reviewed version is used
+    questions: list[str] | None = None  # question IDs to rerun; None runs every confirmed question
+
+
+class DecisionBody(BaseModel):
+    claim: str
+    decision: Literal["accepted", "rejected"]
+
+
+class OverrideBody(BaseModel):
+    verdict: Verdict
+
+
+class PassageBody(BaseModel):
+    text: str
+
+
+class ConfirmWeeks(BaseModel):
+    upload_id: str
+    weeks: dict[str, int]
+
+
+def create_app(data_dir: Path, runs_dir: Path, ollama=None, openai=None, llm_opts: dict | None = None) -> FastAPI:
+    """openai: a client with `async complete(model, messages, schema)`; default is the real OpenAI client."""
+    data_dir, runs_dir = Path(data_dir), Path(runs_dir)
+    db_path, files_dir, uploads_dir = data_dir / "noodles.db", data_dir / "files", data_dir / "uploads"
+    db.init(db_path)
+    vlm = ollama or Ollama(data_dir / "transcriptions")
+    app = FastAPI(title="noodles")
+    app.state.openai, app.state.db_path = openai, db_path
+    tasks: dict[str, asyncio.Task] = {}
+    ingest_progress: dict[str, dict] = {}  # upload or progress id -> {filename: {done, total}} flagged pages transcribed so far
+
+    @contextmanager
+    def conn():
+        c = db.connect(db_path)
+        try:
+            yield c
+        finally:
+            c.close()
+
+    def safe_id(value: str) -> str:
+        if not ID.match(value):
+            raise HTTPException(400, f"invalid id: {value}")
+        return value
+
+    def version_row(c, vid: str):
+        v = c.execute("SELECT * FROM versions WHERE id = ?", (vid,)).fetchone()
+        if not v:
+            raise HTTPException(404, "version not found")
+        return v
+
+    def start_job(code: str, vid: str, config: dict, work) -> str:
+        """Run `work(run, conn)` as a background task; its run log reports progress."""
+        run = Run.start(runs_dir, code, vid, config, openai or OpenAIClient(), **(llm_opts or {}))
+
+        async def job():
+            c = db.connect(db_path)
+            try:
+                await work(run, c)
+                run.end()
+            except Exception as e:
+                run.end(str(e) or type(e).__name__)
+            finally:
+                c.close()
+
+        tasks[run.id] = asyncio.create_task(job())
+        return run.id
+
+    def run_status(path: Path) -> dict:
+        recs = read_log(path)
+        cfg, end = recs[0], recs[-1] if recs[-1]["type"] == "end" else None
+        calls = [r for r in recs if r["type"] == "call"]
+        task = tasks.get(cfg["run_id"])
+        status = end["status"] if end else "running" if task and not task.done() else "interrupted"
+        out = {"run_id": cfg["run_id"], "kind": cfg["kind"], "version": cfg["version"], "status": status,
+               "error": end and end["error"], "started_at": cfg["started_at"], "ended_at": end and end["ended_at"],
+               "done": len(calls), "total": None, "stage": ""}
+        # steps: the agent actions shown as dots in the progress view, of which steps_done are finished
+        if cfg["kind"] == "split":
+            steps = ["Read the paper"] + (["Read the answers"] if cfg.get("answers", True) else []) + ["Split into questions"]
+            out |= {"total": 1, "stage": "Splitting the paper into questions",
+                    "steps": steps, "steps_done": len(steps) - 1 + bool(calls)}  # the files are read before the run starts
+        if cfg["kind"] == "map":
+            n = len(cfg["weeks"])
+            extracted = sum(r["call_type"] == "extractor" for r in calls)
+            short = n > 4  # long labels crowd a row of more than five dots
+            out |= {"total": n + 1, "stage": f"Extracting topics, week {min(extracted + 1, n)} of {n}" if extracted < n
+                    else "Merging topics across weeks",
+                    "steps": [f"Week {w}" if short else f"Extract topics from week {w}" for w in cfg["weeks"]]
+                    + ["Merge" if short else "Merge topics across weeks"],
+                    "steps_done": min(extracted, n) + any(r["call_type"] == "orchestrator" for r in calls)}
+        if cfg["kind"] == "test_drive":
+            answered = sum(r["type"] == "answer" for r in recs)
+            out |= {"done": answered, "total": len(cfg["questions"]),
+                    "stage": f"Student answering, {answered} of {len(cfg['questions'])} questions"}
+        return out
+
+    def previous_version(c, v, reviewed: bool = False, with_run: bool = False) -> str | None:
+        """The latest earlier version of the same course (optionally with a reviewed map, or with a test-drive run)."""
+        for r in c.execute("SELECT * FROM versions WHERE course_code = ? AND created_at < ? ORDER BY created_at DESC",
+                           (v["course_code"], v["created_at"])):
+            if (not reviewed or r["map_reviewed_at"]) and (not with_run or latest_run(r["course_code"], r["id"], "test_drive")):
+                return r["id"]
+        return None
+
+    def latest_run(code: str, vid: str, kind: str, **match) -> Path | None:
+        for path in sorted((runs_dir / code / vid).glob("*.jsonl"), reverse=True):
+            cfg = read_log(path)[0]
+            if cfg["kind"] == kind and all(cfg.get(k) == v for k, v in match.items()):
+                return path
+        return None
+
+    @app.get("/runs/{run_id}")
+    def get_run(run_id: str):
+        path = find_log(runs_dir, safe_id(run_id))
+        if not path:
+            raise HTTPException(404, "run not found")
+        return run_status(path)
+
+    @app.post("/versions/{vid}/map-runs")
+    async def start_map_run(vid: str):
+        with conn() as c:
+            v = version_row(c, vid)
+            weeks = [r[0] for r in c.execute("SELECT DISTINCT week FROM passages WHERE version_id = ? ORDER BY week", (vid,))]
+            # files added in place: this version's own confirmed topics are the reference, so IDs stay the same
+            prev = vid if v["map_reviewed_at"] else previous_version(c, v, reviewed=True)
+            previous = [{"concept_id": r["concept_id"], "name": r["name"], "aliases": json.loads(r["aliases"])} for r in
+                        c.execute("SELECT * FROM concepts WHERE version_id = ? ORDER BY concept_id", (prev,))] if prev else []
+        code = v["course_code"]
+        return {"run_id": start_job(code, vid, {"kind": "map", "weeks": weeks, "previous_version": prev},
+                                    lambda run, c: build_map(run, c, code, vid, previous))}
+
+    @app.get("/versions/{vid}/map")
+    def get_map(vid: str):
+        """The reviewed map, or the latest run's draft if it is newer. Includes passage locations for links."""
+        with conn() as c:
+            v = version_row(c, vid)
+            reviewed = load_map(c, vid) if v["map_reviewed_at"] else None
+            passages = {r["passage_id"]: {"slug": r["file_slug"], "page": r["page"], "week": r["week"]}
+                        for r in c.execute("SELECT passage_id, file_slug, page, week FROM passages WHERE version_id = ?", (vid,))}
+        path = latest_run(v["course_code"], vid, "map")
+        run = run_status(path) if path else None
+        draft = next((r["map"]["concepts"] for r in read_log(path) if r["type"] == "draft"), None) if path else None
+        if draft is not None and run["status"] == "done" and (not reviewed or run["ended_at"] > v["map_reviewed_at"]):
+            state, concepts = "draft", draft
+        elif reviewed is not None:
+            state, concepts = "reviewed", reviewed
+        else:
+            state, concepts = "none", []
+        id_diff = None
+        with conn() as c:
+            if prev := previous_version(c, v, reviewed=True):  # a rename shows up as one disappeared and one new ID
+                before = {r[0] for r in c.execute("SELECT concept_id FROM concepts WHERE version_id = ?", (prev,))}
+                now_ids = {x["concept_id"] for x in concepts}
+                id_diff = {"previous_version": prev, "disappeared": sorted(before - now_ids), "new": sorted(now_ids - before)}
+        return {"version_id": vid, "course_code": v["course_code"], "state": state, "id_diff": id_diff,
+                "reviewed_at": v["map_reviewed_at"], "run": run, "concepts": concepts, "passages": passages}
+
+    @app.put("/versions/{vid}/map")
+    def confirm_map(vid: str, body: MapBody):
+        with conn() as c:
+            v = version_row(c, vid)
+            path = latest_run(v["course_code"], vid, "map")
+            if path and run_status(path)["status"] == "running":
+                raise HTTPException(409, "the map is still being built; confirm once it finishes")
+            try:
+                save_map(c, vid, body.concepts)
+            except MapError as e:
+                raise HTTPException(422, str(e))
+        return {"ok": True}
+
+    @app.post("/versions/{vid}/assessments")
+    async def add_assessment(vid: str, name: str = Form(), week_cutoff: int = Form(), current_format: str = Form(),
+                             paper: UploadFile = Form(), answers: UploadFile | None = Form(None), progress_id: str | None = Form(None)):
+        """Parse the paper (and answers) into assessment_files, then start the question split.
+        With progress_id, /progress/{progress_id} reports each file's transcribed pages while they are read."""
+        def progress(files):  # paper then answers: keep the paper's count when the answers start
+            if progress_id:
+                ingest_progress[progress_id] = {**ingest_progress.get(progress_id, {}), **files}
+        if week_cutoff < 1 or current_format not in FORMATS:
+            raise HTTPException(422, f"week_cutoff must be 1 or more and current_format one of {', '.join(FORMATS)}")
+        aid = slugify(name)
+        with conn() as c:
+            code = version_row(c, vid)["course_code"]
+        texts = {}
+        with tempfile.TemporaryDirectory() as tmp:
+            for kind, f in (("paper", paper), ("answers", answers)):
+                if not f:
+                    continue
+                fname = Path(f.filename or "").name
+                try:
+                    check_upload_name(fname)
+                    src = Path(tmp) / kind / fname
+                    src.parent.mkdir()
+                    src.write_bytes(await f.read())
+                    texts[kind] = (fname, await asyncio.to_thread(read_document, src, vlm, progress))
+                except IngestError as e:
+                    raise HTTPException(422, str(e))
+                except OllamaError as e:
+                    raise HTTPException(503, str(e))
+        with conn() as c, c:
+            before = {(r["kind"], r["filename"], r["text"]) for r in c.execute(
+                "SELECT kind, filename, text FROM assessment_files WHERE version_id = ? AND assessment_id = ?", (vid, aid))}
+            if before != {(k, fn, t) for k, (fn, t) in texts.items()}:  # new files: confirmed questions no longer apply
+                c.execute("DELETE FROM questions WHERE version_id = ? AND assessment_id = ?", (vid, aid))
+            c.execute("DELETE FROM assessment_files WHERE version_id = ? AND assessment_id = ?", (vid, aid))
+            c.execute("INSERT OR REPLACE INTO assessments (version_id, assessment_id, week_cutoff, current_format) "
+                      "VALUES (?, ?, ?, ?)", (vid, aid, week_cutoff, current_format))
+            c.executemany("INSERT INTO assessment_files (version_id, assessment_id, kind, filename, text) VALUES (?, ?, ?, ?, ?)",
+                          [(vid, aid, k, fn, t) for k, (fn, t) in texts.items()])
+        paper_text, answers_text = texts["paper"][1], texts.get("answers", (None, None))[1]
+        run_id = start_job(code, vid, {"kind": "split", "assessment_id": aid, "answers": "answers" in texts},
+                           lambda run, c: split(run, aid, paper_text, answers_text))
+        return {"assessment_id": aid, "run_id": run_id}
+
+    @app.get("/versions/{vid}/assessments")
+    def list_assessments(vid: str):
+        """Each assessment with its confirmed questions, or else the latest split draft; code-check flags on each."""
+        out = []
+        with conn() as c:
+            code = version_row(c, vid)["course_code"]
+            for a in c.execute("SELECT * FROM assessments WHERE version_id = ? ORDER BY week_cutoff, assessment_id", (vid,)):
+                aid = a["assessment_id"]
+                files = {r["kind"]: r for r in c.execute("SELECT kind, filename, text FROM assessment_files "
+                                                         "WHERE version_id = ? AND assessment_id = ?", (vid, aid))}
+                path = latest_run(code, vid, "split", assessment_id=aid)
+                run = run_status(path) if path else None
+                draft = next((r for r in read_log(path) if r["type"] == "split"), None) if path else None
+                questions = confirmed_questions(c, vid, aid)
+                state = "confirmed" if questions else "draft" if draft else run["status"] if run else "none"
+                if not questions and draft:
+                    questions = draft["questions"]
+                paper = files["paper"]["text"] if "paper" in files else ""
+                out.append({"assessment_id": aid, "week_cutoff": a["week_cutoff"], "current_format": a["current_format"],
+                            "files": {k: r["filename"] for k, r in files.items()}, "state": state, "run": run,
+                            "questions": [{**q, "flags": flags(paper, q)} for q in questions],
+                            "unmatched_marking_material": draft["unmatched_marking_material"] if draft and state == "draft" else []})
+        return out
+
+    @app.put("/versions/{vid}/assessments/{aid}/questions")
+    def confirm_questions(vid: str, aid: str, body: QuestionsBody):
+        with conn() as c:
+            version_row(c, vid)
+            if not c.execute("SELECT 1 FROM assessments WHERE version_id = ? AND assessment_id = ?", (vid, aid)).fetchone():
+                raise HTTPException(404, "assessment not found")
+            try:
+                save_questions(c, vid, aid, body.questions)
+            except QuestionsError as e:
+                raise HTTPException(422, str(e))
+        return {"ok": True}
+
+    @app.post("/versions/{vid}/test-drives")
+    async def start_test_drive(vid: str, body: TestDriveBody):
+        """The student on every confirmed non-code question, or only body.questions (a per-question rerun).
+        Needs a reviewed map and confirmed questions."""
+        with conn() as c:
+            v = version_row(c, vid)
+            if not v["map_reviewed_at"]:
+                raise HTTPException(409, "confirm the course map first")
+            questions = [{**dict(r), "options": json.loads(r["options"]) if r["options"] else None} for r in c.execute(
+                "SELECT q.question_id, q.context, q.text, q.options, q.type, q.marking_material, a.week_cutoff FROM questions q JOIN assessments a ON "
+                "a.version_id = q.version_id AND a.assessment_id = q.assessment_id WHERE q.version_id = ? "
+                "AND q.type != 'code' ORDER BY a.week_cutoff, q.rowid", (vid,))]
+            if not questions:
+                raise HTTPException(409, "confirm the questions of at least one assessment first")
+            if body.questions is not None:
+                if unknown := set(body.questions) - {q["question_id"] for q in questions}:
+                    raise HTTPException(422, f"not confirmed, or a code question: {', '.join(sorted(unknown))}")
+                questions = [q for q in questions if q["question_id"] in body.questions]
+            prereq = None
+            if body.prerequisite:
+                p = c.execute("SELECT id FROM versions WHERE course_code = ? AND map_reviewed_at IS NOT NULL "
+                              "ORDER BY created_at DESC LIMIT 1", (body.prerequisite,)).fetchone()
+                if not p or body.prerequisite == v["course_code"]:
+                    raise HTTPException(422, f"{body.prerequisite} has no version with a reviewed map")
+                prereq = p["id"]
+        code = v["course_code"]
+        config = {"kind": "test_drive", "target": vid, "prerequisite": prereq, "prerequisite_course": body.prerequisite,
+                  "questions": [q["question_id"] for q in questions]}
+        return {"run_id": start_job(code, vid, config, lambda run, c: test_drive(
+            run, db_path, code, vid, prereq, body.prerequisite, questions))}
+
+    @app.get("/versions/{vid}/summary")
+    def get_summary(vid: str):
+        r = get_review(vid)
+        with conn() as c:
+            concepts = load_map(c, vid)
+        return {"course_code": r["course_code"], "run": r["run"], "prerequisite": r["prerequisite"],
+                **summary(r["questions"], topic_coverage(concepts, r["questions"]))}
+
+    @app.get("/versions/{vid}/method")
+    def get_method(vid: str):
+        """Facts and actual cost of the version's latest test-drive (sys-design Stage 4 section 6)."""
+        with conn() as c:
+            v = version_row(c, vid)
+            path = latest_run(v["course_code"], vid, "test_drive")
+            prev = previous_version(c, v, with_run=True)
+            passages = c.execute("SELECT count(*), sum(origin = 'vlm') FROM passages WHERE version_id = ?", (vid,)).fetchone()
+            topics = c.execute("SELECT count(*) FROM concepts WHERE version_id = ?", (vid,)).fetchone()[0]
+            qs = c.execute("SELECT count(*), count(DISTINCT assessment_id) FROM questions WHERE version_id = ?", (vid,)).fetchone()
+        recs = read_log(path) if path else []
+        calls = [r for r in recs if r["type"] == "call"]
+        prev_run = prev and latest_run(v["course_code"], prev, "test_drive")
+        return {"course_code": v["course_code"], "created_at": v["created_at"],
+                "run": path and {**run_status(path), "prerequisite": recs[0].get("prerequisite_course"),
+                                 "compared_with": prev and {"version_id": prev, "run": run_status(prev_run)},
+                                 "passages": passages[0], "transcribed": passages[1] or 0,
+                                 "topics": topics, "map_reviewed_at": v["map_reviewed_at"],
+                                 "questions": qs[0], "assessments": qs[1], "assessed": len(recs[0]["questions"]),
+                                 "rerun": len({r["question_id"] for r in calls if not r["cached"] and r["question_id"]}),
+                                 "models": sorted({r["model"] for r in calls})},
+                "cost": run_cost(recs), **course_runs(v["course_code"])}
+
+    def course_runs(code: str) -> dict:
+        """Every run of the course (all versions), oldest first, with its new calls and cost; the total is None
+        while a price is missing."""
+        runs = []
+        for p in sorted((runs_dir / code).glob("*/*.jsonl")):
+            recs = read_log(p)
+            c = run_cost(recs)
+            runs.append({"run_id": recs[0]["run_id"], "kind": recs[0]["kind"], "version_id": recs[0]["version"],
+                         "started_at": recs[0]["started_at"], "assessment_id": recs[0].get("assessment_id"),
+                         "questions": len(recs[0].get("questions") or []),
+                         "new_calls": sum(t["calls"] for t in c["by_type"].values()),
+                         "web_search_calls": c["web_search_calls"], "cost": c["total"]})
+        runs.sort(key=lambda r: r["run_id"])  # run IDs start with their UTC start time
+        costs = [r["cost"] for r in runs]
+        return {"runs": runs, "runs_total": None if None in costs else sum(costs)}
+
+    @app.get("/versions/{vid}/review")
+    def get_review(vid: str):
+        """Every confirmed question with its latest result across the version's test-drives (a per-question rerun
+        replaces only its questions); cited passages resolved for links."""
+        with conn() as c:
+            v = version_row(c, vid)
+            code = v["course_code"]
+            path = latest_run(code, vid, "test_drive")
+            cfg = read_log(path)[0] if path else {}
+            answers, source = {}, {}  # question -> its newest answer, and the config of the run that gave it
+            for p in sorted((runs_dir / code / vid).glob("*.jsonl"), reverse=True):
+                recs = read_log(p)
+                if recs[0]["kind"] == "test_drive":
+                    for r in recs:
+                        if r["type"] == "answer" and r["question_id"] not in answers:
+                            answers[r["question_id"]], source[r["question_id"]] = r, recs[0]
+            decisions = {r["id"]: dict(r) for r in c.execute("SELECT * FROM assumed_knowledge WHERE course_code = ?", (code,))}
+            run_ids = {x["run_id"] for x in source.values()}
+            overrides = {(r["run_id"], r["question_id"], r["agent"]): r["verdict"] for r in c.execute(
+                f"SELECT * FROM verdict_overrides WHERE run_id IN ({','.join('?' * len(run_ids))})", (*run_ids,))}
+            cited = {e for a in answers.values() for s in a["steps"] for e in s["evidence"]}
+            prereqs = {x["prerequisite"] for x in source.values()} - {None}
+            passages = {r["passage_id"]: dict(r) for r in c.execute(
+                f"SELECT p.passage_id, v.course_code AS course, p.version_id, p.week, f.filename, p.file_slug AS slug, "
+                f"p.page, p.text, p.origin FROM passages p JOIN versions v ON v.id = p.version_id JOIN files f ON "
+                f"f.version_id = p.version_id AND f.slug = p.file_slug WHERE p.version_id IN ({','.join('?' * (1 + len(prereqs)))}) "
+                f"AND p.passage_id IN ({','.join('?' * len(cited))})", (vid, *prereqs, *cited))}
+            questions = []
+            for q in c.execute("SELECT q.question_id, q.assessment_id, q.context, q.text, q.options, q.type, a.week_cutoff, "
+                               "a.current_format FROM questions q JOIN assessments a ON a.version_id = q.version_id AND "
+                               "a.assessment_id = q.assessment_id WHERE q.version_id = ? ORDER BY a.week_cutoff, "
+                               "q.assessment_id, q.rowid", (vid,)):
+                a, src = answers.get(q["question_id"]), source.get(q["question_id"], {})
+                def seen(e):  # a cited ID outside the week limit stays visible, unresolved
+                    p = passages.get(e)
+                    ok = p and (p["version_id"] == src["prerequisite"] or p["week"] <= q["week_cutoff"])
+                    return p if ok else {"passage_id": e}
+                if a:
+                    g = {x["step_id"]: x for x in a.get("grounding", [])}
+                    a = {**{k: v for k, v in a.items() if k != "grounding"},
+                         "steps": [{**s, "evidence": [seen(e) for e in s["evidence"]], "grounding": g.get(s["step_id"]),
+                                    "assumption": assumption(s, decisions)} for s in a["steps"]]}
+                marks = None
+                if a and a["marks"]:  # the professor's override replaces the verdict; the original is kept
+                    key = lambda k: (src["run_id"], q["question_id"], k)
+                    marks = {k: {**m, "verdict": overrides[key(k)], "overridden": m["verdict"]}
+                             if key(k) in overrides else m for k, m in a["marks"].items()}
+                questions.append({**dict(q), "options": json.loads(q["options"]) if q["options"] else None,
+                                  "answer": a and {k: v for k, v in a.items() if k not in ("web", "marks")},
+                                  "web": a and a["web"], "marks": marks, "exposure": exposure(marks) if a else None,
+                                  "gap": bool(a) and any(s["source"] == "none" or (s["grounding"] or {}).get("verdict")
+                                                         == "unsupported" or (s["assumption"] or {}).get("state") == "rejected"
+                                                         for s in a["steps"]),
+                                  # which run gave this result, and whether files were added to the version after it ran
+                                  "run_id": src.get("run_id"), "answered_at": src.get("started_at"),
+                                  "outdated": bool(a and v["materials_changed_at"] and src["started_at"] < v["materials_changed_at"])})
+        for q in questions:
+            q["recommendation"] = recommend(q) if q["answer"] or q["type"] == "code" else None
+        # topics a question relies on that were only mentioned by its cutoff (sys-design Stage 4, assessment review)
+        with conn() as c:
+            concepts = load_map(c, vid)
+        thin: dict[str, list[dict]] = {}
+        tested: dict[str, set[tuple]] = {}  # question -> (week, topic) from its cited passages of this course
+        for t in topic_coverage(concepts, questions)["topics"]:
+            for m in t["mentioned"]:
+                thin.setdefault(m["question_id"], []).append({"concept_id": t["concept_id"], "name": t["name"], **m})
+            for qid, cited in t["cited"].items():
+                tested.setdefault(qid, set()).update((p["week"], t["concept_id"], t["name"]) for p in cited if p["version_id"] == vid)
+        for q in questions:
+            q["only_mentioned"] = thin.get(q["question_id"], [])
+            q["topics"] = [{"week": w, "concept_id": c, "name": n} for w, c, n in sorted(tested.get(q["question_id"], ()))]
+        return {"course_code": code, "run": run_status(path) if path else None,
+                "prerequisite": cfg.get("prerequisite_course"), "questions": questions}
+
+    @app.get("/courses/{code}/assumptions")
+    def list_assumptions(code: str):
+        with conn() as c:
+            return [dict(r) for r in c.execute("SELECT * FROM assumed_knowledge WHERE course_code = ? ORDER BY id", (code,))]
+
+    @app.post("/courses/{code}/assumptions")
+    def decide(code: str, body: DecisionBody):
+        """Accept or reject a claim for the course; the same claim decided again updates its decision."""
+        with conn() as c, c:
+            if not c.execute("SELECT 1 FROM courses WHERE code = ?", (code,)).fetchone():
+                raise HTTPException(404, "course not found")
+            row = c.execute("SELECT id FROM assumed_knowledge WHERE course_code = ? AND claim = ?",
+                            (code, body.claim)).fetchone()
+            if row:
+                c.execute("UPDATE assumed_knowledge SET decision = ?, decided_at = ? WHERE id = ?",
+                          (body.decision, now(), row["id"]))
+                return {"id": row["id"]}
+            cur = c.execute("INSERT INTO assumed_knowledge (course_code, claim, decision, decided_at) VALUES (?, ?, ?, ?)",
+                            (code, body.claim, body.decision, now()))
+            return {"id": cur.lastrowid}
+
+    @app.put("/runs/{run_id}/overrides/{qid}/{agent}")
+    def override(run_id: str, qid: str, agent: str, body: OverrideBody):
+        """The professor's verdict for one answer of one run; exposure is recomputed from it."""
+        path = find_log(runs_dir, safe_id(run_id))
+        a = path and next((r for r in read_log(path) if r["type"] == "answer" and r["question_id"] == qid), None)
+        if not a:
+            raise HTTPException(404, "no answer for that question in this run")
+        if agent not in ("student", "web") or not a["marks"]:
+            raise HTTPException(422, "only marked student or web answers can be overridden")
+        with conn() as c, c:
+            c.execute("INSERT OR REPLACE INTO verdict_overrides (run_id, question_id, agent, verdict) VALUES (?, ?, ?, ?)",
+                      (run_id, qid, agent, body.verdict))
+        return {"ok": True}
+
+    @app.get("/courses")
+    def courses():
+        with conn() as c:
+            rows = c.execute("SELECT * FROM versions ORDER BY course_code, created_at DESC").fetchall()
+        out: dict[str, list] = {}
+        for r in rows:
+            out.setdefault(r["course_code"], []).append(dict(r))
+        return [{"code": k, "versions": v} for k, v in out.items()]
+
+    @app.post("/courses/{code}/uploads")
+    def upload(code: str, files: list[UploadFile]):
+        safe_id(code)
+        names = [Path(f.filename or "").name for f in files]
+        if not names:
+            raise HTTPException(400, "upload at least one file")
+        try:
+            for n in names:
+                check_upload_name(n)
+        except IngestError as e:
+            raise HTTPException(400, str(e))
+        if len(set(names)) != len(names):
+            raise HTTPException(400, "two uploaded files have the same filename")
+        upload_id = uuid.uuid4().hex
+        d = uploads_dir / upload_id
+        d.mkdir(parents=True)
+        for i, (f, n) in enumerate(zip(files, names)):
+            # one subdir per file: names differing only in case collide on macOS
+            (d / str(i)).mkdir()
+            (d / str(i) / n).write_bytes(f.file.read())
+        return {"upload_id": upload_id, "files": [{"filename": n, "week_guess": guess_week(n)} for n in names]}
+
+    def staged_files(body: ConfirmWeeks) -> list[Path]:
+        """The upload's files, once every one has a confirmed week."""
+        d = uploads_dir / safe_id(body.upload_id)
+        if not d.is_dir():
+            raise HTTPException(404, "upload not found")
+        staged = sorted(d.glob("*/*"), key=lambda p: int(p.parent.name))
+        missing = [p.name for p in staged if p.name not in body.weeks]
+        if set(body.weeks) - {p.name for p in staged}:
+            raise HTTPException(422, "weeks given for files that weren't uploaded")
+        if missing or any(w < 1 for w in body.weeks.values()):
+            raise HTTPException(422, f"confirm a week (1 or more) for every file: {', '.join(missing)}")
+        return staged
+
+    def reading(body: ConfirmWeeks, work):
+        """Run an ingest step with the upload's progress reporting, mapping its errors to HTTP ones."""
+        try:
+            return work(lambda files: ingest_progress.__setitem__(body.upload_id, files))
+        except FingerprintTaken as e:
+            raise HTTPException(409, str(e))
+        except IngestError as e:
+            raise HTTPException(422, str(e))
+        except OllamaError as e:
+            raise HTTPException(503, str(e))
+
+    @app.post("/courses/{code}/versions")
+    def confirm(code: str, body: ConfirmWeeks):
+        safe_id(code)
+        staged = staged_files(body)
+        with conn() as c:
+            return {"version_id": reading(body, lambda progress: ingest(c, files_dir, code, staged, body.weeks, vlm, progress))}
+
+    @app.post("/versions/{vid}/files")
+    def add_to_version(vid: str, body: ConfirmWeeks):
+        """Add files to the version in place (sys-design Stage 0, "Adding files to a course")."""
+        staged = staged_files(body)
+        with conn() as c:
+            version_row(c, vid)
+            reading(body, lambda progress: add_files(c, files_dir, vid, staged, body.weeks, vlm, progress))
+        return {"version_id": vid}
+
+    @app.delete("/versions/{vid}/files/{slug}")
+    def delete_file(vid: str, slug: str):
+        """Delete one file from the version in place (sys-design Stage 0, "Deleting")."""
+        with conn() as c:
+            version_row(c, vid)
+            try:
+                remove_file(c, files_dir, vid, safe_id(slug))
+            except KeyError:
+                raise HTTPException(404, "file not found")
+            except (LastFile, FingerprintTaken) as e:
+                raise HTTPException(409, str(e))
+        return {"ok": True}
+
+    @app.delete("/versions/{vid}/assessments/{aid}")
+    def delete_assessment(vid: str, aid: str):
+        """Its files and questions go; earlier test-drive results stay in the run logs, unshown."""
+        with conn() as c, c:
+            if not c.execute("DELETE FROM assessments WHERE version_id = ? AND assessment_id = ?", (vid, aid)).rowcount:
+                raise HTTPException(404, "assessment not found")
+            for table in ("questions", "assessment_files"):
+                c.execute(f"DELETE FROM {table} WHERE version_id = ? AND assessment_id = ?", (vid, aid))
+        return {"ok": True}
+
+    @app.delete("/courses/{code}")
+    def delete_course(code: str):
+        """The course, all its versions with their stored files, and its run logs."""
+        logs = runs_dir / safe_id(code)
+        run_ids = [p.stem for p in logs.glob("*/*.jsonl")]
+        if any(not tasks[r].done() for r in run_ids if r in tasks):
+            raise HTTPException(409, "a run of this course is still going; delete it once the run ends")
+        with conn() as c, c:
+            vids = [r[0] for r in c.execute("SELECT id FROM versions WHERE course_code = ?", (code,))]
+            if not vids:
+                raise HTTPException(404, "course not found")
+            marks = ",".join("?" * len(vids))
+            for table in ("evidence", "occurrences", "concepts", "passages", "files", "questions", "assessment_files", "assessments"):
+                c.execute(f"DELETE FROM {table} WHERE version_id IN ({marks})", vids)
+            c.execute(f"DELETE FROM versions WHERE id IN ({marks})", vids)
+            c.execute(f"DELETE FROM verdict_overrides WHERE run_id IN ({','.join('?' * len(run_ids))})", run_ids)
+            c.execute("DELETE FROM assumed_knowledge WHERE course_code = ?", (code,))
+            c.execute("DELETE FROM courses WHERE code = ?", (code,))
+            c.execute("INSERT INTO passages_fts(passages_fts) VALUES('rebuild')")
+        for vid in vids:
+            shutil.rmtree(files_dir / vid, ignore_errors=True)
+        shutil.rmtree(logs, ignore_errors=True)
+        return {"ok": True}
+
+    @app.get("/progress/{key}")
+    def reading_progress(key: str):
+        """Per file, flagged pages transcribed so far while an upload's files (key: upload_id) or an assessment's
+        files (key: the progress_id it was sent with) are read; empty until the files are parsed."""
+        return ingest_progress.get(key, {})
+
+    @app.get("/versions/{vid}")
+    def get_version(vid: str):
+        """The version, the files added to it after creation, and what those additions made outdated."""
+        with conn() as c:
+            v = dict(version_row(c, vid))
+            added = [dict(r) for r in c.execute("SELECT filename, week FROM files WHERE version_id = ? AND added_at IS NOT NULL "
+                                                "ORDER BY added_at, filename", (vid,))]
+            has_map = v["map_reviewed_at"] or c.execute("SELECT 1 FROM concepts WHERE version_id = ?", (vid,)).fetchone()
+        changed = v["materials_changed_at"]
+        map_run = latest_run(v["course_code"], vid, "map")
+        return {**v, "added_files": added, "removed_files": json.loads(v["removed_files"] or "[]"), "outdated": {
+            "map": bool(changed and has_map and not (map_run and read_log(map_run)[0]["started_at"] > changed)),
+            "map_confirmed": bool(v["map_reviewed_at"] and (not changed or v["map_reviewed_at"] > changed))}}
+
+    @app.get("/versions/{vid}/files")
+    def version_files(vid: str):
+        with conn() as c:
+            v = version_row(c, vid)
+            files = c.execute("SELECT slug, filename, week FROM files WHERE version_id = ? ORDER BY week, filename",
+                              (vid,)).fetchall()
+            out = []
+            for f in files:
+                pages = c.execute("SELECT passage_id, page, text, origin FROM passages "
+                                  "WHERE version_id = ? AND file_slug = ? ORDER BY page", (vid, f["slug"])).fetchall()
+                out.append({**dict(f), "pages": [dict(p) for p in pages]})
+        return {"version_id": vid, "course_code": v["course_code"], "created_at": v["created_at"], "files": out}
+
+    @app.put("/versions/{vid}/passages/{pid}")
+    def edit_passage(vid: str, pid: str, body: PassageBody):
+        """Hand correction of a page's text; later runs read the new text (its cache fingerprint changes)."""
+        with conn() as c, c:
+            if not c.execute("UPDATE passages SET text = ? WHERE version_id = ? AND passage_id = ?",
+                             (body.text, vid, pid)).rowcount:
+                raise HTTPException(404, "page not found")
+            c.execute("INSERT INTO passages_fts(passages_fts) VALUES('rebuild')")
+        return {"passage_id": pid, "text": body.text}
+
+    @app.get("/files/{vid}/{slug}.pdf")
+    def source_pdf(vid: str, slug: str):
+        path = files_dir / safe_id(vid) / f"{safe_id(slug)}.pdf"
+        if not path.exists():
+            raise HTTPException(404, "file not found")
+        return FileResponse(path, media_type="application/pdf")
+
+    @app.get("/files/{vid}/{slug}/pages/{page}.png")
+    def page_image(vid: str, slug: str, page: int):
+        path = files_dir / safe_id(vid) / f"{safe_id(slug)}.pdf"
+        doc = pypdfium2.PdfDocument(path) if path.exists() else None
+        if not doc or not 1 <= page <= len(doc):
+            raise HTTPException(404, "page not found")
+        return Response(page_png(doc, page - 1), media_type="image/png")
+
+    return app
+
+
+def assumption(step: dict, decisions: dict[int, dict]) -> dict | None:
+    """Review state of an assumed_knowledge step: accepted (cites a valid accepted_id, skipped in review), decided
+    since the run (same claim), or unreviewed. An unknown or rejected accepted_id counts as unreviewed."""
+    if step["source"] != "assumed_knowledge":
+        return None
+    d = decisions.get(step["accepted_id"])
+    if d and d["decision"] == "accepted":
+        return {"state": "accepted", "id": d["id"]}
+    d = next((d for d in decisions.values() if d["claim"] == step["claim"]), None)
+    return {"state": d["decision"], "id": d["id"]} if d else {"state": "unreviewed"}
+
+
+def from_env() -> FastAPI:
+    """NOODLES_DATA / NOODLES_RUNS dirs; NOODLES_FAKE=1 swaps in fake model clients (no model calls);
+    NOODLES_OLLAMA_URL points at Ollama; NOODLES_STATIC serves the built front end at / (the Docker image)."""
+    fake = os.environ.get("NOODLES_FAKE") == "1"
+    data = Path(os.environ.get("NOODLES_DATA", "data"))
+    if fake:
+        from noodles.fakes import FakeOllama, FakeOpenAI
+    vlm = FakeOllama() if fake else Ollama(data / "transcriptions", os.environ.get("NOODLES_OLLAMA_URL", "http://127.0.0.1:11434"))
+    app = create_app(data, Path(os.environ.get("NOODLES_RUNS", "runs")), ollama=vlm, openai=FakeOpenAI() if fake else None)
+    if static := os.environ.get("NOODLES_STATIC"):
+        app.mount("/", StaticFiles(directory=static, html=True))  # after the API routes, so they match first
+    return app

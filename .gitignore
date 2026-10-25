@@ -11,3 +11,13 @@ wheels/
 .venv
 
 .claude
+# goal loop
+.goal-progress.md
+.goal-loop.log
+
+# data and run logs (never commit)
+data/
+runs/
+.env
+node_modules/
+docs/archive
