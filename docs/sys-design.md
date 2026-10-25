@@ -74,7 +74,7 @@ The professor uploads all their files. The week for each file is guessed from it
 
 - Whole pages, not crops: no crop coordinates, no table border check, and nothing is clipped or missed when an element isn't detected.
 - Thresholds for "very little text" and "mostly garbled" are set during the build, checked on the demo courses.
-- Setup outside `uv sync`: LibreOffice, Java 11+ (for OpenDataLoader) and Ollama with `qwen3-vl:2b-instruct` (about 1.9 GB).
+- Setup outside `uv sync`: LibreOffice, Java 11+ (for OpenDataLoader) and Ollama with `qwen3-vl:2b-instruct` (about 1.9 GB). The Docker image (README) includes LibreOffice and Java; Ollama stays on the host so it can use the GPU.
 - Before relying on it, run one slide deck and one Word document from each demo course through the pipeline and check the flagged pages by eye.
 
 **Assessments into questions:**
@@ -376,6 +376,7 @@ CREATE TABLE versions (
   created_at TEXT NOT NULL,
   fingerprint TEXT NOT NULL UNIQUE,           -- of the current materials and their confirmed weeks; updated when files are added
   materials_changed_at TEXT,                  -- NULL until files are added after creation
+  removed_files TEXT,                         -- JSON array of files deleted since creation, for the notices
   map_reviewed_at TEXT                        -- NULL until the professor confirms the map
 );
 
@@ -385,6 +386,8 @@ CREATE TABLE files (
   slug TEXT NOT NULL,                         -- unique within a version; used in passage IDs
   filename TEXT NOT NULL,
   week INTEGER NOT NULL,                      -- professor-confirmed
+  sha256 TEXT,                                -- of the uploaded bytes, for the version fingerprint
+  added_at TEXT,                              -- NULL for files in the original upload
   PRIMARY KEY (version_id, slug)
 );
 
@@ -492,7 +495,7 @@ CREATE TABLE verdict_overrides (              -- tied to one run; a rerun's new 
 
 **Users:** one user, no auth.
 
-**UI (decided):** a FastAPI backend with a React front end, chosen so the look and feel of the dashboard can be fully customised. The backend runs the pipeline and serves results from the run log, and the front end shows the course report as a dashboard. The API, screens and how long-running jobs report progress are defined in the slice specs.
+**UI (decided):** a FastAPI backend with a React front end, chosen so the look and feel of the dashboard can be fully customised. The backend runs the pipeline and serves results from the run log, and the front end shows the course report as a dashboard. The API, screens and how long-running jobs report progress are defined in the slice specs. In the Docker image, the backend also serves the built front end on the same port.
 
 ## Evaluation
 
@@ -510,7 +513,7 @@ Evaluation is not part of the product: no screen or sidebar entry, since profess
 - Generated once by the **required knowledge finder**: Claude Code with a strong model, a reverse student that works back from the answer. For each question it receives the question, **the answer key** and the same week-limited materials as the student agent.
 - One entry per question, traced against the materials up to its own assessment's week. With a quiz each week, entries are added as each week's quiz arrives; earlier entries stay frozen.
 - Its task is to **trace the known answer to the materials**, not to solve the question. For each step it records the knowledge needed, the supporting passage IDs or `not in materials`, and an overall coverage verdict. Optionally it also lists the topics taught in each week, which lets us measure extraction completeness.
-- Run several times and merged (an LLM may do the merging), keeping `not in materials` whenever runs disagree. Then frozen.
+- Run 3 times per question, each in a fresh context, and merged in code: the verdict is a gap if any run has a `not in materials` step, and the reference passages are those cited by at least 2 of the 3 runs. Then frozen.
 - The prompt forbids stretching citations: "if no passage supports a step, write `not in materials`".
 - Questions without an answer key are left out.
 - Metrics:
