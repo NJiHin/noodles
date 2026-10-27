@@ -119,6 +119,10 @@ table.t td { padding: 8px; border-top: 1px solid var(--line); vertical-align: to
 .confirm input { font: 14px var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
 .confirm .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
 .ctx { background: var(--bg); border-radius: 8px; padding: 12px 14px; margin: 12px 0 4px; display: grid; gap: 8px; }
+/* a context opens its question group: the divider sits above the context, not between it and its question */
+.q-group { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 6px; }
+.q-group > .ctx { margin: 0; }
+.q-group > .q-edit { border-top: 0; padding-top: 10px; }
 .ctx-h { display: flex; gap: 10px; align-items: baseline; font-size: 13px; }
 .ctx-h small { color: var(--ink-3); font-size: 12.5px; }
 .ctx textarea, .own-ctx textarea { width: 100%; font: 13px/1.5 var(--sans); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--surface); color: var(--ink); resize: vertical; }

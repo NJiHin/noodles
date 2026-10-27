@@ -132,11 +132,11 @@ function AssessmentPanel({ vid, a, reload, deleted }: { vid: string; a: Assessme
         <>
           <div className="qs-edit">
             {qs.map((q, i) => (
-              <div key={q.question_id}>
+              <div key={q.question_id} className={q.context !== null && qs.findIndex((x) => x.context === q.context) === i ? 'q-group' : undefined}>
               {q.context !== null && qs.findIndex((x) => x.context === q.context) === i && (
                 <div className="ctx">
-                  <div className="ctx-h"><b>Context</b>
-                    {sharing(q.context).length > 1 && <small>shared by {sharing(q.context).map(label).join(', ')} · editing it changes all {sharing(q.context).length}</small>}</div>
+                  <div className="ctx-h"><b>Context for {sharing(q.context).map(label).join(', ')}</b>
+                    {sharing(q.context).length > 1 && <small>editing it changes all {sharing(q.context).length}</small>}</div>
                   <textarea aria-label={`Context for ${sharing(q.context).map(label).join(', ')}`} value={q.context} rows={6}
                     onChange={(e) => setShared(q.context!, e.target.value)} />
                 </div>
@@ -148,7 +148,7 @@ function AssessmentPanel({ vid, a, reload, deleted }: { vid: string; a: Assessme
                     {QTYPES.map((t) => <option key={t} value={t}>{t.replace('_', '/')}</option>)}
                   </select>
                   {q.type === 'code' && <span className="v n">not assessed (code question)</span>}
-                  {q.flags?.map((f) => <span className="v bad" key={f}>{f}</span>)}
+                  {q.flags?.map((f) => <span className={f === 'Double-check against the source' ? 'v part' : 'v bad'} key={f}>{f}</span>)}
                   <button className="btn del" onClick={() => setQs(qs.filter((_, j) => j !== i))}>Delete</button>
                 </div>
                 <textarea aria-label={`Text of ${q.question_id}`} value={q.text} rows={2} onChange={(e) => set(i, { text: e.target.value })} />

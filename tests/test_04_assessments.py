@@ -58,7 +58,7 @@ def test_question_not_in_paper_flagged(client, version, split):
     split["questions"][0]["text"] = "What does recursion do?"
     a = assessment(client, version, add(client, version))
     q = {x["question_id"]: x for x in a["questions"]}
-    assert "not found in the paper" in " ".join(q["midterm-q1a"]["flags"])
+    assert q["midterm-q1a"]["flags"] == ["Double-check against the source"]
     assert q["midterm-q1b"]["flags"] == []
 
 
@@ -142,13 +142,14 @@ def test_context_kept_per_question_and_checked_against_the_paper(client, version
     client.app.state.openai.handlers["QuestionSplit"] = lambda m: blanks_split((None, None))
     a = assessment(client, version, add(client, version, name="Quiz", paper=BLANKS, answers=None))
     assert [q["context"] for q in a["questions"]] == [CTX, CTX]
-    assert not any("not found" in f for q in a["questions"] for f in q["flags"])
+    assert not any("Double-check against the source" in q["flags"] for q in a["questions"])
     bad = blanks_split((None, None))
     bad["questions"][0]["context"] = "Data that is not on the paper."
+    bad["questions"][0]["text"] = "A question that is not on the paper either."
     client.app.state.openai.handlers["QuestionSplit"] = lambda m: bad
     paper2 = [BLANKS[0] + "\nShow your working."]  # a different paper, so the split isn't reused from the run log
     a = assessment(client, version, add(client, version, name="Quiz 2", paper=paper2, answers=None))
-    assert "Context not found in the paper" in a["questions"][0]["flags"]
+    assert a["questions"][0]["flags"].count("Double-check against the source") == 1  # one label for text and context
     r = client.put(f"/versions/{version}/assessments/quiz-2/questions", json={"questions": [
         {k: q[k] for k in ("question_id", "context", "text", "options", "type", "marking_material")} for q in a["questions"]]})
     assert r.status_code == 200, r.text
