@@ -61,7 +61,6 @@ export function Materials({ vid }: { vid: string }) {
 
   function saved(page: Page) {
     setV((cur) => cur && { ...cur, files: cur.files.map((f) => ({ ...f, pages: f.pages.map((p) => (p.passage_id === page.passage_id ? page : p)) })) })
-    setOpen((cur) => cur && { ...cur, page })
   }
 
   return (
