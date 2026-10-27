@@ -3,6 +3,7 @@ import { api, post } from '../api'
 import { animated, vtName } from '../animated'
 import { WeekTable, unconfirmedWeeks, type Upload } from '../FileProgress'
 import { ConfirmDialog } from '../ConfirmDialog'
+import { useSticky } from '../sticky'
 import { PageViewer, type Page } from '../PageViewer'
 import { AddedNotice, VersionShell } from '../Shell'
 
@@ -26,10 +27,10 @@ export function Materials({ vid }: { vid: string }) {
 
   // adding files: only to the course's latest version (sys-design Stage 0, "Adding files to a course")
   const [latest, setLatest] = useState(false)
-  const [up, setUp] = useState<Upload | null>(null)
-  const [weeksIn, setWeeksIn] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState(false)
-  const [addErr, setAddErr] = useState('')
+  const [up, setUp] = useSticky<Upload | null>(`materials:${vid}:up`, null)  // sticky: a read survives switching tabs
+  const [weeksIn, setWeeksIn] = useSticky<Record<string, string>>(`materials:${vid}:weeks`, {})
+  const [busy, setBusy] = useSticky(`materials:${vid}:busy`, false)
+  const [addErr, setAddErr] = useSticky(`materials:${vid}:err`, '')
   const pick = useRef<HTMLInputElement>(null)
   useEffect(() => {
     if (v) api<{ code: string; versions: { id: string }[] }[]>('/courses')

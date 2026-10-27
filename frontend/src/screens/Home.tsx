@@ -4,6 +4,7 @@ import { animated, vtName } from '../animated'
 import { ConfirmDialog } from '../ConfirmDialog'
 import { WeekTable, unconfirmedWeeks, type Upload } from '../FileProgress'
 import { Shell, fmtDate } from '../Shell'
+import { useSticky } from '../sticky'
 import { go } from '../useHash'
 
 type Course = { code: string; versions: { id: string; created_at: string; map_reviewed_at: string | null }[] }
@@ -11,11 +12,11 @@ type Course = { code: string; versions: { id: string; created_at: string; map_re
 /** Upload a course's files, confirm each file's week, then open the materials. Files are added later on Materials. */
 export function Home() {
   const [courses, setCourses] = useState<Course[]>([])
-  const [code, setCode] = useState('')
-  const [up, setUp] = useState<Upload | null>(null)
-  const [weeks, setWeeks] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
+  const [code, setCode] = useSticky('home:code', '')  // sticky: a read survives leaving the page
+  const [up, setUp] = useSticky<Upload | null>('home:up', null)
+  const [weeks, setWeeks] = useSticky<Record<string, string>>('home:weeks', {})
+  const [busy, setBusy] = useSticky('home:busy', false)
+  const [err, setErr] = useSticky('home:err', '')
   const [deleting, setDeleting] = useState<Course | null>(null)
 
   const loadCourses = () => api<Course[]>('/courses').then(setCourses).catch((e) => setErr(e.message))
@@ -40,6 +41,7 @@ export function Home() {
     try {
       const w = Object.fromEntries(Object.entries(weeks).map(([k, v]) => [k, Number(v)]))
       const { version_id } = await post<{ version_id: string }>(`/courses/${code}/versions`, { upload_id: up!.upload_id, weeks: w })
+      setUp(null); setCode('')
       go(`/v/${version_id}/materials`)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }

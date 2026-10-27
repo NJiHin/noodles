@@ -4,6 +4,7 @@ import { FileStatus, activeFile, useProgress } from '../FileProgress'
 import { animated, vtName } from '../animated'
 import { ConfirmDialog } from '../ConfirmDialog'
 import { RunProgress } from '../RunProgress'
+import { useSticky } from '../sticky'
 import { VersionShell } from '../Shell'
 import { FORMAT_LABEL, QTYPES, type Assessment, type Question } from '../types'
 
@@ -11,8 +12,8 @@ import { FORMAT_LABEL, QTYPES, type Assessment, type Question } from '../types'
 export function Assessments({ vid }: { vid: string }) {
   const [list, setList] = useState<Assessment[] | null>(null)
   const [err, setErr] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [reading, setReading] = useState<{ id: string; files: string[] } | null>(null)  // files being read, for progress
+  const [busy, setBusy] = useSticky(`assessments:${vid}:busy`, false)  // sticky: a read survives switching tabs
+  const [reading, setReading] = useSticky<{ id: string; files: string[] } | null>(`assessments:${vid}:reading`, null)  // files being read, for progress
   const prog = useProgress(reading?.id ?? null)
   const load = () => api<Assessment[]>(`/versions/${vid}/assessments`).then(setList).catch((e) => setErr(e.message))
   useEffect(() => { load() }, [vid]) // eslint-disable-line react-hooks/exhaustive-deps
