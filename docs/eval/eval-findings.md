@@ -1,6 +1,6 @@
 # Evaluation: validity, limitations and the IS2109 pilot
 
-How the evaluation runs is in `docs/eval/eval-process.md`; its rules are in `docs/specs/13-evaluation.md`. This file records why the method is a reasonable one, what it can't show, and what the first pilot found. The pilot's data (traces, `reference.json`, `scores.csv`, run logs) are under `data/` and `runs/`, which are never committed, so the numbers are copied here.
+How the evaluation runs is in `docs/eval/eval-process.md`; its rules are in `docs/specs/13-evaluation.md`. This file records why the method is a reasonable one, what it can't show, and what the IS2109 runs found. The pilot's data (traces, `reference.json`, `scores.csv`, run logs) are under `data/` and `runs/`, which are never committed, so the numbers are copied here.
 
 ## What is being evaluated
 
@@ -24,39 +24,38 @@ Design choices that follow this literature: the finder runs on a different model
 
 ## Limitations
 
-- **The finder has not been checked against a person.** Every precedent above validates its automated labeller against human labels. Until a person labels a sample (20 to 30 questions) and agreement is reported as Cohen's kappa, a disagreement may be the system's error or the finder's.
-- **The finder leans towards gaps.** Working from the answer, it lists more and finer steps than the student; it is told never to stretch a citation; and one trace of three with a `not in materials` step makes a gap. On IS2109 the three traces agreed on every verdict, so the merge rule did not decide anything, but on noisier questions it would.
+- **The finder has not been checked against a person.** Every precedent above validates its automated labeller against human labels; a human check (Cohen's kappa on 20 to 30 questions) is out of scope for this project. A disagreement may be the system's error or the finder's.
+- **The finder leans towards gaps.** Working from the answer, it lists more and finer steps than the student; it is told never to stretch a citation; and one trace of three with a `not in materials` step makes a gap. On IS2109 the three traces agreed on every verdict (32 questions), so the merge rule did not decide anything, but on noisier questions it would.
 - **Shared mistakes are invisible.** Where student and finder are wrong the same way, they agree.
 - **Only the verdict is compared.** Step-level agreement is not measured; citation recall is the only step-level signal and is secondary.
-- **Small sample.** 11 questions (about 7 that need any course knowledge) cannot support rates. The pilot checks that the pipeline works.
-- **The student prompt was tuned on the same 11 questions** (see History). Expect lower correctness on unseen questions.
+- **Small sample.** 32 questions from one course, with 2 reference gaps. Rates are indicative only; gap detection in particular rests on 2 cases.
+- **The student prompt was tuned on 11 of the 32 questions** (quizzes 1 and 2; see History). The other 21 were unseen.
+- **Week cutoffs are an input.** A cutoff one week early turns taught material into gaps on both sides (see History, item 7). The evaluation can't detect a wrong cutoff by itself.
 
-## IS2109 pilot
+## IS2109 results
 
-**Data:** IS2109 (AI and Machine Learning Techniques I), version `23a6e13a375329bf`. Lecture 1 (25 pages, week 1), Lecture 2 (20 pages, week 2). Quiz 1, given in week 1: six numeric blanks on one regression data set (four sums, then the slope and intercept from the "normal equations discussed in class", which the quiz prints). Quiz 2, given in week 2: five true/false statements. All 11 have answer keys.
+**Data:** IS2109 (AI and Machine Learning Techniques I), version `23a6e13a375329bf`. Lectures 1 to 11 (weeks 1 to 11; Lectures 6 and 7 are one file in week 6). Quizzes 1 to 9, 32 questions, all with answer keys. Each quiz tests the lecture after its number, so its week cutoff is that lecture's week: quiz 1 → 2, quiz 2 → 3, quiz 3 → 4, quiz 4 → 5, quiz 5 → 6, quiz 6 → 6, quiz 7 → 8, quiz 8 → 9, quiz 9 → 10. No quiz covers week 11; the week 10 quiz is a reflection with no answer key and is left out.
 
-**Silver set:** 33 finder runs (11 × 3), 22 Oct 2026, Claude Opus 5.5. The three runs agreed on the covered/gap verdict for every question.
+**Silver set:** 96 finder runs (32 × 3), 27–28 Oct 2026, Claude Opus 5.5, with the current finder prompt. The three runs agreed on the covered/gap verdict for every question. 30 questions are covered, 2 are gaps.
 
-**Latest score** (test-drive `20261024T065933837255-e682e7`, student prompt `student-v13`):
+**Latest score** (test-drive `20261028T015402157820-afbee3`, student prompt `student-v13`):
 
 | | Value |
 |---|---|
-| Coverage agreement | 7 / 11 (0.64) |
-| Gaps found / missed / false | 2 / 4 / 0 |
-| Student answers correct | 11 / 11 |
-| Citation recall | 0.50 (over the 4 questions with reference passages) |
+| Coverage agreement | 29 / 32 (0.91) |
+| Gaps found / missed / false | 0 / 2 / 1 |
+| Student answers correct | 28 / 32 (0.88) |
+| Citation recall | 0.45 |
+
+Disagreements:
 
 | Question | Silver | Noodles | Why |
 |---|---|---|---|
-| Quiz 1 Q1–Q4 (sums) | covered | covered | Sums of a printed table using printed definitions: one general-knowledge step each. |
-| Quiz 1 Q5 (slope), Q6 (intercept) | gap | covered | The quiz says the normal equations were "discussed in class"; Lecture 1 only names them in a chart title and defers regression to weeks 2–3. The student labelled them general knowledge instead of applying the taught-in-class rule. |
-| Quiz 2 Q1 (test data in training) | covered | covered | Both cite Lecture 1 p11. |
-| Quiz 2 Q2 (overfitting) | gap | covered | Open judgement call: Lecture 1 mentions "overfitting risks" in passing and describes small-k KNN fitting the training data closely without naming overfitting. The finder says that doesn't teach it; the student cited p11 and p23. |
-| Quiz 2 Q3 (interaction terms) | gap | gap | Not taught by week 2. |
-| Quiz 2 Q4 (polynomial regression is linear) | gap | covered | "Linear means linear in the coefficients" is not taught; the student filed it as general knowledge. |
-| Quiz 2 Q5 (five dummy variables) | gap | gap | Dummy coding is not taught by week 2. |
+| Quiz 2 Q3 (interaction terms) | gap | covered | The hierarchical principle (keep the main effects when a model has an interaction term) is not stated; Lecture 3's examples follow it without saying it. |
+| Quiz 9 Q2 (PCA) | gap | covered | That principal components are uncorrelated is not taught; Lecture 10 shows how the second component is built but never states it. |
+| Quiz 3 Q2 (precision, recall, F1) | covered | gap | The student flagged the confusion-matrix step (TP, FP, FN and the formulas); the finder cites Lecture 4 for all of it. |
 
-All four misses are the system saying covered where the finder says gap; there were no false gaps.
+Wrong answers: quiz 1 Q5, quiz 5 Q2b, quiz 6 Q2 and quiz 8 Q2. All four are covered on both sides, so the materials were enough; the cause is not yet investigated.
 
 ## History: what the pilot changed
 
@@ -71,12 +70,13 @@ Each finding came from reading a run against the answer keys, then the silver se
 
 Agreement stayed at 7/11 through steps 4–6; correctness went 10/11 → 9/11 → 11/11. Further prompt changes for these four questions were stopped to avoid overfitting to them.
 
+7. **The week cutoffs were one week early.** With quizzes 3 to 9 added, the finder marked almost every question a gap and often noted the topic was "next lecture". Matching each quiz's topics to the lecture that teaches them showed each quiz tests the lecture after its number. Cutoffs were corrected (quiz 7 by two weeks, quiz 6 unchanged), and the silver set and test-drive were redone. The 11-question pilot's 7/11 and its four misses (items 1 to 6) were measured with the wrong cutoffs: under the corrected ones, the normal equations, overfitting and "linear in the coefficients" are taught, and all four now agree.
+
 ## Known weaknesses and open items
 
-- **Student:** files course knowledge under `general_knowledge` (quiz 2 Q4, quiz 1 Q5–Q6) and applies the taught-in-class rule inconsistently. Recorded as a known weakness; a general fix (a check that general-knowledge steps are really school-level) is to be judged on unseen questions first.
-- **Open decision:** does a passage that describes a concept without naming it count as teaching it (quiz 2 Q2)?
+- **Student:** misses gaps where the materials show a rule by example without stating it (quiz 2 Q3) or leave out one property (quiz 9 Q2), and flagged a false gap on a taught formula (quiz 3 Q2). The earlier `general_knowledge` pattern (course knowledge filed as general knowledge) no longer appears: its cases are taught by the corrected cutoffs, so it is untested rather than fixed.
+- **Answers:** 4 wrong answers on covered questions, not yet investigated.
+- **Answers marked only by styling** (coloured or bold options) are lost at parsing; see `docs/sys-design.md` (Known bug). Quiz 4's keys were typed in by hand.
 - **Not done yet:**
   - the perturbed set;
-  - a human check of the finder on 20 to 30 questions, reported as Cohen's kappa;
-  - tracing the silver set again with the final finder prompt (its verdicts are unchanged by the later prompt rules, but the stored traces predate them);
-  - more weeks of IS2109 and a second course, as unseen questions.
+  - a second course, as unseen questions.
