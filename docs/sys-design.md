@@ -83,9 +83,11 @@ The professor uploads all their files. The week for each file is guessed from it
    - **Context:** text the question needs that isn't part of the question itself, such as a scenario, a data table or formulas shared by several questions. The split copies it verbatim into the `context` of every question it applies to; `text` keeps only the question. Each question carries its own copy: there is no shared record to link to, and the rows are written in one batch. The student, web agent and marker see the context, then the question. On the assessments screen, questions with identical context are shown under one context box, and saving it rewrites that context on all of them in one batch; editing one question's context on its own separates it from the group.
    - **Question ID:** the label printed on the paper when it looks like a question number (e.g. "7", "1a", "Q3", "Question 2(b)"). If the paper prints no such label, the split returns none and code numbers the question by its position in the paper (q1, q2, …), so questions are never named after their content (e.g. a blank labelled "S_x").
 3. Code checks (fail loudly, flag for the professor):
-   - each question's text, and its context, appear verbatim in the parsed paper (checked separately)
-   - every question has marking material and every piece of marking material has a question
+   - each question's text, and its context, appear verbatim in the parsed paper; if either doesn't, one amber "Double-check against the source" label (a prompt to compare, not an error)
+   - every question has marking material and every piece of marking material has a question (red)
 4. The professor confirms or corrects the question list before any run, like the week guess.
+
+- **Known bug:** an answers file that marks the answer only by styling (coloured or bold text, highlighting) loses that mark: parsing keeps the text, not its style, so the answers read the same as the paper and the split can't tell which option is correct (IS2109 Week 4 Quiz: the correct options are blue). Until fixed, type the answers into the marking material on the confirm screen. Fixes considered: mark text styled differently from the rest of the page (colour, bold), or give the split the answer pages as images.
 
 - Cached in the run log, so it reruns only when the files change.
 
