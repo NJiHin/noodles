@@ -49,7 +49,7 @@ export function Home() {
   const unconfirmed = up ? unconfirmedWeeks(up, weeks) : 0
 
   return (
-    <Shell course="Noodles" sub="Test-drive your course" nav={[{ label: 'Courses', href: '#/', on: true }]}>
+    <Shell nav={[{ label: 'Courses', href: '#/', on: true }]}>
       <main className="page">
         <div className="page-head">
           <h1>Courses</h1>

@@ -4,11 +4,12 @@ import { api } from './api'
 export type Nav = { label: string; href: string; on?: boolean; n?: number; divider?: boolean; back?: boolean }  // divider: a line above it; back: up a level, the rest indented under it
 
 /** c-shell layout: left section list, then the page. */
-export function Shell({ course, sub, nav, children }: { course: string; sub: string; nav: Nav[]; children: ReactNode }) {
+export function Shell({ course, sub, nav, children }: { course?: string; sub?: string; nav: Nav[]; children: ReactNode }) {
   return (
     <>
       <aside className="side">
-        <div className="course"><b>{course}</b><span>{sub}</span></div>
+        <a className="brand" href="#/"><img src="/favicon.svg" width="24" height="24" alt="" />Noodles</a>
+        {course && <div className="course"><b>{course}</b><span>{sub}</span></div>}
         {nav.map((n) => (
           <Fragment key={n.href}>
             {n.divider && <hr className="side-div" />}

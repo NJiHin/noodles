@@ -6,8 +6,11 @@
   --ink-2: #50555E;
   --ink-3: #8A909A;
   --line: #E5E7EB;
-  --accent: #3346C8;
-  --accent-t: #ECEEFB;
+  --accent: #17191C;  /* links, focus and marks in ink; the brand yellow carries the colour */
+  --accent-t: #FFF6CC;
+  --brand: #F5C518;
+  --brand-data: #E0AE00;  /* a darker gold for small data marks on white */
+  --frame: #F7F3E3;  /* sidebar and the ground around the page sheet */
   --ok: #237A57;
   --ok-t: #E6F3EC;
   --warn: #A4620A;
@@ -18,15 +21,17 @@
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
 }
 * { box-sizing: border-box; margin: 0; }
-body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); min-height: 100vh; display: grid; grid-template-columns: 220px minmax(0, 1fr); font-variant-numeric: tabular-nums; }
+body { background: var(--frame); color: var(--ink); font: 14px/1.5 var(--sans); min-height: 100vh; display: grid; grid-template-columns: 220px minmax(0, 1fr); font-variant-numeric: tabular-nums; }
 
 /* left: report sections */
-.side { border-right: 1px solid var(--line); padding: 20px 14px; display: flex; flex-direction: column; gap: 2px; }
+.side { padding: 20px 14px; display: flex; flex-direction: column; gap: 2px; }
 .course { padding: 0 10px 18px; }
 .course b { display: block; font-size: 15px; }
 .course span { color: var(--ink-3); font-size: 13px; }
 .side a { display: flex; justify-content: space-between; padding: 7px 10px; border-radius: 6px; color: var(--ink-2); text-decoration: none; }
-.side a.on { background: var(--surface); color: var(--ink); font-weight: 500; box-shadow: 0 0 0 1px var(--line); }
+.side a.on { background: var(--surface); color: var(--ink); font-weight: 500; }
+.side a.on::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--brand); align-self: center; }
+.side .brand { display: flex; justify-content: flex-start; align-items: center; gap: 10px; padding: 2px 10px 18px; font-weight: 600; font-size: 15px; color: var(--ink); letter-spacing: -0.01em; }
 .side a .n { color: var(--ink-3); }
 
 
@@ -41,7 +46,10 @@ body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); min
 .v.n { background: #EEF0F3; color: var(--ink-2); }
 
 /* single-pane pages */
-.page { padding: 28px 40px 56px; display: flex; flex-direction: column; gap: 24px; max-width: 1220px; }
+.page { padding: 28px 40px 56px; display: flex; flex-direction: column; gap: 24px; }
+.page > * { max-width: 1140px; }  /* the sheet fills the window; content keeps its old width */
+/* the page sits on a white sheet inside the frame */
+.page, .review { background: var(--surface); margin: 8px 8px 8px 0; border: 1px solid #EAE6D6; border-radius: 16px; min-height: calc(100vh - 16px); overflow: hidden; }
 .page-head .meta { color: var(--ink-3); font-size: 13px; }
 .page-head h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin-top: 2px; }
 .page-head p { color: var(--ink-2); max-width: 72ch; margin-top: 4px; }
@@ -49,4 +57,4 @@ body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); min
 .panel > h2 { font-size: 14px; font-weight: 600; }
 .panel > .hint { color: var(--ink-3); font-size: 13px; margin-top: 2px; }
 a.q, .qid { font-weight: 600; color: var(--ink); text-decoration: none; }
-a.q:hover { color: var(--accent); }
+a.q:hover { text-decoration: underline; text-decoration-color: var(--brand); text-decoration-thickness: 2px; text-underline-offset: 3px; }
