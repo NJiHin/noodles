@@ -20,8 +20,9 @@ export function PageLink({ vid, slug, page, children }: { vid: string; slug: str
 }
 
 /** Modal: the page's text (editable) on the left, the page image the VLM saw on the right. */
-export function PageViewer({ vid, slug, page: n, onSaved, onClose }: { vid: string; slug: string; page: number; onSaved?: (p: Page) => void; onClose: () => void }) {
+export function PageViewer({ vid, slug, page: start, onSaved, onClose }: { vid: string; slug: string; page: number; onSaved?: (p: Page) => void; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null)
+  const [n, setN] = useState(start)
   const [file, setFile] = useState<File | null>(null)
   const [draft, setDraft] = useState<string | null>(null)
   const [formatted, setFormatted] = useState(false)  // shows the Markdown rendered; editing is always on the raw text
@@ -34,6 +35,13 @@ export function PageViewer({ vid, slug, page: n, onSaved, onClose }: { vid: stri
     api<{ files: File[] }>(`/versions/${vid}/files`).then((v) => setFile(v.files.find((f) => f.slug === slug) ?? null)).catch((e) => setErr(e.message))
   }, [vid, slug])
   const page = file?.pages.find((p) => p.page === n)
+  const at = file ? file.pages.findIndex((p) => p.page === n) : -1
+  const prev = file?.pages[at - 1]?.page
+  const next = file?.pages[at + 1]?.page
+  function go(to: number | undefined) {  // blocked while editing so an unsaved draft isn't lost
+    if (to === undefined || draft !== null) return
+    setN(to); setSaved(false); setErr('')
+  }
 
   async function save() {
     setErr(''); setBusy(true)
@@ -47,9 +55,13 @@ export function PageViewer({ vid, slug, page: n, onSaved, onClose }: { vid: stri
   }
 
   return (
-    <dialog className="viewer" ref={ref} onClose={() => { closeTimer.current = setTimeout(onClose, 150) }}>{/* unmount after the exit transition; a viewer replaced first never fires it */}
+    <dialog className="viewer" ref={ref} onClose={() => { closeTimer.current = setTimeout(onClose, 150) }}
+      onKeyDown={(e) => { if (e.key === 'ArrowLeft') go(prev); else if (e.key === 'ArrowRight') go(next) }}>{/* unmount after the exit transition; a viewer replaced first never fires it */}
       <div className="viewer-head">
-        <b>{file?.filename ?? slug}</b><small>Page {n}{file && ` of ${file.pages.length}`}</small>
+        <b>{file?.filename ?? slug}</b>
+        <button className="btn sm" aria-label="Previous page" disabled={prev === undefined || draft !== null} onClick={() => go(prev)}>‹</button>
+        <small>Page {n}{file && ` of ${file.pages.length}`}</small>
+        <button className="btn sm" aria-label="Next page" disabled={next === undefined || draft !== null} onClick={() => go(next)}>›</button>
         {page?.origin === 'vlm' && <span className="v n">vlm</span>}
         <a className="btn" href={pdfHref(vid, slug, n)} target="_blank" rel="noreferrer">Open PDF</a>
         <button className="btn x" onClick={() => ref.current?.close()}>Close</button>

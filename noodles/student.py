@@ -20,7 +20,7 @@ from noodles.grounding import ground
 from noodles.web import mark, question_text, web_agent
 from noodles.llm import LUNA, Run, add_usage
 
-STUDENT_V, RECHECK_V = "student-v13", "recheck-v1"  # v13: the prompt lists the tools, when to use each and their limits
+STUDENT_V, RECHECK_V = "student-v14", "recheck-v1"  # v14: "none" also covers information neither given nor taught
 MAX_LOOKUPS, RECHECK_HITS, MAX_CALCS = 5, 3, 30
 Source = Literal["course", "prerequisite", "assumed_knowledge", "general_knowledge", "none"]
 ASSESSMENT_TABLES = {"assessments", "assessment_files", "questions"}
@@ -113,7 +113,7 @@ Answer the exam question concisely, as in an exam. List the steps of your answer
 - "prerequisite": you found it in a passage of the prerequisite course. Cite the passage IDs as evidence.
 - "assumed_knowledge": something beyond pre-university level that the course's stated entry requirements imply (e.g. its prerequisite course) but that isn't in the provided materials. Give a one-line reason. Example: "A square matrix is invertible exactly when its determinant is non-zero." with reason "Linear algebra is a stated prerequisite of the course."
 - "general_knowledge": school-level knowledge or something printed in the question, as above. Leave evidence empty.
-- "none": subject knowledge the answer needs that you wouldn't already know and can't find in the course or prerequisite materials. Example: "Memoisation caches results." when no passage covers memoisation.
+- "none": subject knowledge or information the answer needs that you wouldn't already know and can't find in the question or the course or prerequisite materials. Examples: "Memoisation caches results." when no passage covers memoisation; "The mean of Sales in the Carseats data is needed." when neither the question nor the materials give it.
 Use "prerequisite" whenever the material exists there; use "assumed_knowledge" only when it doesn't. When unsure between "assumed_knowledge" and "none", choose "none".
 Cite only passage IDs you were shown. Leave evidence empty for "assumed_knowledge", "general_knowledge" and "none", and reason and accepted_id null unless stated below.
 final_answer is the answer alone, with no explanation: your reasoning belongs in the steps. If you can't attempt the question, set final_answer to null and still list the steps you managed.

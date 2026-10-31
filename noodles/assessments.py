@@ -74,13 +74,14 @@ def squash(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+CHECK_SOURCE = "Double-check against the source"  # a prompt to compare, shown in amber; other flags are problems
+
+
 def flags(paper: str, q: dict) -> list[str]:
     """Code checks: text and context each verbatim in the paper (line breaks and spacing ignored); marking material present."""
     out = []
-    if squash(q["text"]) not in squash(paper):
-        out.append("Question text not found in the paper")
-    if q.get("context") and squash(q["context"]) not in squash(paper):
-        out.append("Context not found in the paper")
+    if squash(q["text"]) not in squash(paper) or (q.get("context") and squash(q["context"]) not in squash(paper)):
+        out.append(CHECK_SOURCE)
     if not (q.get("marking_material") or "").strip():
         out.append("Has no marking material")
     return out

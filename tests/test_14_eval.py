@@ -136,3 +136,20 @@ def test_score_with_labels_reports_detection_and_false_flags(client, dirs, drive
     t = ev.score(dirs[0], dirs[1], driven, labels=labels)["totals"]
     assert t["coverage"] == {"planted": 1, "detected": 1, "detection_rate": 1.0, "false_flags": 0}
     assert t["exposure"] == {"planted": 1, "detected": 0, "detection_rate": 0.0, "false_flags": 1}
+
+
+def test_score_with_labels_leaves_out_unlabelled(client, dirs, driven):
+    # null means not known by construction: q1 is AI-exposed but unlabelled, so it isn't a false flag
+    labels = {"quiz-q1": {"gap": False, "exposure": None},
+              "quiz-q2": {"gap": None, "exposure": "ai_exposed"}}
+    t = ev.score(dirs[0], dirs[1], driven, labels=labels)["totals"]
+    assert t["coverage"] == {"planted": 0, "detected": 0, "detection_rate": "n/a", "false_flags": 0}
+    assert t["exposure"] == {"planted": 1, "detected": 0, "detection_rate": 0.0, "false_flags": 0}
+
+
+def test_score_with_labels_counts_each_exposure_cell(client, dirs, driven):
+    # q1's result is ai_exposed and q2's broken_or_gap (see the test above)
+    labels = {"quiz-q1": {"gap": False, "exposure": "course_specific"},
+              "quiz-q2": {"gap": True, "exposure": "broken_or_gap"}}
+    t = ev.score(dirs[0], dirs[1], driven, labels=labels)["totals"]
+    assert t["cells"] == {"course_specific": "0/1", "broken_or_gap": "1/1"}

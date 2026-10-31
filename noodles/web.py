@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from noodles.llm import LUNA, SOL, Run
 
-WEB_V, MARK_V = "web-v4", "mark-v1"  # v4: the bare-answer line names final_answer
+WEB_V, MARK_V = "web-v4", "mark-v2"  # v4: the bare-answer line names final_answer; mark-v2: the key is authoritative
 Verdict = Literal["correct", "partial", "incorrect"]
 WEB_SEARCH = [{"type": "web_search"}]
 
@@ -27,6 +27,7 @@ List the URLs of the sources you used."""
 
 MARK_PROMPT = """You mark one answer to an exam question against the professor's marking material.
 The marking material may be in any form (model answer, rubric, marking scheme); judge against it as it is.
+The marking material is the answer key: mark against it even if you think it is wrong, and never substitute your own solution. Still accept answers that mean the same (equivalent wording, notation or rounding).
 Ignore phrasing, length and style; judge only whether the meaning matches the marking material.
 verdict: "correct", "partial" or "incorrect". reason: one line."""
 
@@ -81,7 +82,8 @@ async def mark(run: Run, q: dict, given: str | None) -> dict:
         return {"verdict": "correct" if ok else "incorrect", "by": "code",
                 "reason": "Exact match with the answer key." if ok else f"Doesn't match the answer key ({q['marking_material']})."}
     body = f"Question:\n{question_text(q)}\n\nMarking material:\n{q['marking_material']}\n\nAnswer:\n{given}"
-    out = await run.call("marker", LUNA, MARK_V, [{"role": "system", "content": MARK_PROMPT},
+    # Sol: Luna marked identical answers differently against a wrong key
+    out = await run.call("marker", SOL, MARK_V, [{"role": "system", "content": MARK_PROMPT},
                                                   {"role": "user", "content": body}], Mark, question_id=q["question_id"])
     return {**out.model_dump(), "by": "marker"}
 

@@ -33,7 +33,7 @@
 .summary .cov-key span { display: inline-flex; gap: 6px; align-items: center; }
 .summary .cov-key i { width: 12px; height: 12px; border-radius: 3px; }
 .summary .cov-key i.dl { width: 0; border-left: 1.5px dashed var(--ink-2); border-radius: 0; }
-.summary .yes { background: var(--accent); } .summary .no { background: #D5D9E0; }
+.summary .yes { background: var(--brand-data); } .summary .no { background: #D5D9E0; }
 .summary .cov-chart { position: relative; margin-top: 30px; }
 .summary .cov-cols { display: grid; grid-template-columns: repeat(var(--n), 1fr); column-gap: 10px; border-bottom: 1px solid var(--line); }
 .summary .cov-col { display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; height: 172px; }
@@ -48,4 +48,4 @@
 .summary .cov-per > div { display: grid; grid-template-columns: 200px 1fr auto; gap: 16px; align-items: baseline; padding: 10px 0; border-top: 1px solid var(--line); font-size: 13px; }
 .summary .cov-per b { font-weight: 600; } .summary .cov-per small { display: block; color: var(--ink-3); font-size: 12.5px; }
 .summary .cov-per .names { color: var(--ink-2); }
-.summary .cov-per .link { border: 0; background: none; padding: 0; font: 13px var(--sans); color: var(--accent); cursor: pointer; }
+.summary .cov-per .link { border: 0; background: none; padding: 0; font: 13px var(--sans); color: var(--accent); cursor: pointer; text-decoration: underline; text-decoration-color: var(--brand); text-decoration-thickness: 2px; text-underline-offset: 3px; }
