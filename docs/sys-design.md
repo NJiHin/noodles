@@ -154,7 +154,7 @@ Calculating these on demand keeps them in step with the map after a professor co
 - **Student agent:** runs once per question with a single profile, the **intended student**: "You have completed [the course's stated prerequisites] and attended weeks 1 to N of this course. You know nothing else in this subject." Gets the topic list for weeks 1 to N plus the prerequisite course, and retrieves passages through a lookup tool (see Retrieval below). There are no mastery levels and no year-based persona.
 - **Web agent:** runs once. LLM with web search, standing in for a student using AI to answer.
 - **Grounding checker:** a code check, then an isolated LLM call. Verifies `course` and `prerequisite` steps only.
-- **Marker:** gives each final answer a verdict (`correct` / `partial` / `incorrect`) and a one-line reason. Marking only feeds the exposure table. Coverage and grounding don't depend on it.
+- **Marker:** gives each final answer a verdict (`correct` / `partial` / `incorrect`) and a one-line reason. The marking material is authoritative: the marker marks against it even when it thinks the key is wrong, and never substitutes its own solution, so identical answers get the same verdict and a wrong key shows as `broken_or_gap`. Equivalent wording, notation and rounding still count. Marking only feeds the exposure table. Coverage and grounding don't depend on it.
   - **Multiple choice and true/false:** exact match in code. Every agent sees "final_answer: only the option letter." or "final_answer: only \"True\" or \"False\"." after the question (naming the field matters: "Answer only …" made the student drop its steps), and its prompt keeps explanations out of `final_answer`.
     - Matching ignores case, punctuation, markdown and link citations; an option's letter and its text count as the same answer.
     - An answer in no allowed form is marked `incorrect` with `unclear: true`. Assessment review shows it as "Check answer" so the reviewer overrides the verdict. No retry.
@@ -214,7 +214,7 @@ Calculating these on demand keeps them in step with the map after a professor co
 - Use `prerequisite` whenever the material exists there. Use `assumed_knowledge` only when it doesn't.
 - **The student's system prompt must state the difference between `assumed_knowledge` and `none` explicitly:**
   - `assumed_knowledge`: something beyond pre-university level that the course's stated entry requirements imply (e.g. its prerequisite course) but that isn't in the provided materials. It must come with a one-line reason.
-  - `none`: subject knowledge the answer needs that the student wouldn't already know and can't find in the course or prerequisite materials.
+  - `none`: subject knowledge or information the answer needs that the student wouldn't already know and can't find in the question or the course or prerequisite materials (e.g. a value from a data set it wasn't given).
   - Include a short example of each in the prompt, and tell the agent to choose `none` when it's unsure.
 - **Decided claims in the prompt:** the student's system prompt lists the course's assumed-knowledge decisions, each with its ID:
   - accepted: the student may rely on them. A step that does is labelled `assumed_knowledge` with `"accepted_id": <id>` instead of a reason.
@@ -337,8 +337,8 @@ Combined in code from the stage 2 and 3 outputs and the course map:
 - A few calls at once, to stay within rate limits, with automatic retries on failure.
 - OpenAI structured outputs (JSON schemas) for every agent.
 - **Models** (all at reasoning effort `none`, so temperature 0 can be set):
-  - `gpt-6-luna`: weekly extractors, question split, student agent, re-check, grounding checker, marker
-  - `gpt-6-sol`: orchestrator (one call per course, and every later stage depends on the map)
+  - `gpt-6-luna`: weekly extractors, question split, student agent, re-check, grounding checker
+  - `gpt-6-sol`: orchestrator (one call per course, and every later stage depends on the map); marker (Luna marked identical answers differently against a wrong key, once claiming a match that wasn't there)
   - `gpt-6-sol` with the Responses API `web_search` tool: web agent. A weak model would underrate AI exposure, since it stands in for a student using AI.
 
 **Course-level versioning:**

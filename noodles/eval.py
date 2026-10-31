@@ -162,6 +162,7 @@ def _totals(rows: list[dict]) -> dict:
 
 
 def _detection(rows: list[dict], key: str, planted) -> dict:
+    rows = [r for r in rows if r[f"expected_{key}"] is not None]  # null: not known by construction
     hit = [r for r in rows if planted(r[f"expected_{key}"])]
     found = sum(planted(r[key]) for r in hit)
     return {"planted": len(hit), "detected": found, "detection_rate": found / len(hit) if hit else "n/a",
@@ -169,15 +170,19 @@ def _detection(rows: list[dict], key: str, planted) -> dict:
 
 
 def _score_labels(data_dir: Path, runs_dir: Path, vid: str, labels: dict) -> dict:
-    """Perturbed set: {question_id: {"gap": bool, "exposure": cell}} against the results after overrides."""
+    """Perturbed set: {question_id: {"gap": bool | None, "exposure": cell | None}} (None: unlabelled) against the results after overrides."""
     review, rows = _review(data_dir, runs_dir, vid), []
     for qid, lab in labels.items():
         q = review.get(qid)
         if q and q["answer"]:
             rows.append({"question_id": qid, "expected_gap": lab["gap"], "gap": q["gap"],
                          "expected_exposure": lab["exposure"], "exposure": q["exposure"]})
+    cells = {}  # expected exposure cell -> "matched/planted"
+    for e in dict.fromkeys(r["expected_exposure"] for r in rows if r["expected_exposure"] is not None):
+        hit = [r for r in rows if r["expected_exposure"] == e]
+        cells[e] = f"{sum(r['exposure'] == e for r in hit)}/{len(hit)}"
     return {"rows": rows, "totals": {"coverage": _detection(rows, "gap", bool),
-                                     "exposure": _detection(rows, "exposure", lambda e: e == "ai_exposed")}}
+                                     "exposure": _detection(rows, "exposure", lambda e: e == "ai_exposed"), "cells": cells}}
 
 
 def score(data_dir: Path, runs_dir: Path, vid: str, labels: dict | None = None) -> dict:

@@ -22,9 +22,9 @@ def test_cost_sums_new_records_and_cached_rerun_is_free(client, target):
     drive(client, target)
     m = method(client, target)
     # fake usage per request: 100 input (0 cached), 20 output. Two questions; per question: 2 student requests
-    # (lookup, answer), 1 web (sol + 1 search); marker: q1 by LLM (shared by both answers), q2 by code.
-    luna = (2 * 2 + 1 + 1) * (100 * 1.0 + 20 * 4.0) / 1e6  # one grounding: both cite the same step
-    sol = 2 * (100 * 5.0 + 20 * 20.0) / 1e6
+    # (lookup, answer), 1 web (sol + 1 search); marker (sol): q1 by LLM (shared by both answers), q2 by code.
+    luna = (2 * 2 + 1) * (100 * 1.0 + 20 * 4.0) / 1e6  # one grounding: both cite the same step
+    sol = (2 + 1) * (100 * 5.0 + 20 * 20.0) / 1e6
     assert m["cost"]["total"] == pytest.approx(luna + sol + 2 * 0.01)
     assert m["cost"]["web_search_calls"] == 2
     assert m["cost"]["by_type"]["web"]["web_search_cost"] == pytest.approx(0.02)
