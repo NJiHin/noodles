@@ -1,6 +1,8 @@
 # Evaluation: validity, limitations and results
 
-How the evaluation runs is in `docs/eval/eval-process.md`; its rules are in `docs/specs/13-evaluation.md`. This file records why the method is a reasonable one, what it can't show, and what the IS2109 runs and the perturbed set found. The pilot's data (traces, `reference.json`, `scores.csv`, run logs) are under `data/` and `runs/`, which are never committed, so the numbers are copied here.
+How the evaluation runs is in `docs/eval/eval-process.md`; its rules are in `docs/specs/13-evaluation.md`. This file records why the method is a reasonable one, what it can't show, and what the IS2109 runs, the perturbed set and the held-out set found. The data (traces, `reference.json`, `scores.csv`, labels, run logs) are under `data/` and `runs/`, which are never committed, so the numbers are copied here.
+
+The project documentation reports IS2109 and the held-out set as evaluation evidence. It treats the perturbed set as development work, because the student prompt and marker model were changed after runs on it.
 
 ## What is being evaluated
 
@@ -28,11 +30,13 @@ Design choices that follow this literature: the finder runs on a different model
 - **The finder leans towards gaps.** Working from the answer, it lists more and finer steps than the student; it is told never to stretch a citation; and one trace of three with a `not in materials` step makes a gap. On IS2109 the three traces agreed on every verdict (32 questions), so the merge rule did not decide anything, but on noisier questions it would.
 - **Shared mistakes are invisible.** Where student and finder are wrong the same way, they agree.
 - **Only the verdict is compared.** Step-level agreement is not measured; citation recall is the only step-level signal and is secondary.
-- **Small sample.** 32 questions from one course, with 2 reference gaps. Rates are indicative only; gap detection in particular rests on 2 cases.
+- **Small sample.** One course: 32 questions with 2 reference gaps, and 13 held-out questions with 6 gaps. Rates are indicative only.
 - **The student prompt was tuned on 11 of the 32 questions** (quizzes 1 and 2; see History). The other 21 were unseen.
 - **Week cutoffs are an input.** A cutoff one week early turns taught material into gaps on both sides (see History, item 7). The evaluation can't detect a wrong cutoff by itself.
 - **One run per course.** Run-to-run variation isn't measured, so a single changed verdict may be noise.
 - **The perturbed set was planted by Claude**, so its results also measure the planting; three plants had to be fixed (see Perturbed set).
+- **The perturbed set is not held out.** Its score came after the student prompt and marker model were changed in response to earlier runs on the same questions.
+- **Claude wrote and labelled the held-out questions** with knowledge of where Noodles fails, and no person has checked the labels (see Held-out set).
 
 ## IS2109 results
 
@@ -82,7 +86,7 @@ Wrong answers: quiz 6 Q2 (regression tree salary; key 6.00, student 84.125; both
 
 | | Result |
 |---|---|
-| Coverage gaps caught | 5 / 6, no false gaps on 5 controls |
+| Coverage gaps caught | 5 / 6, no false gaps on 4 controls |
 | AI-exposed | 3 / 3 |
 | Course-specific | 2 / 3 |
 | Web only right | 1 / 1 |
@@ -95,6 +99,59 @@ Misses:
 Fixes made to the plants after the first run, each a planting mistake, not a system result: a two-part question lost the data in its first part; two "course-specific" questions turned out to be ISLR's own analyses (Default ROC, Advertising VIFs), which the web agent found, so they were removed, not relabelled.
 
 Lessons: a question is course-specific only when the data is the lecturer's own, not when a public data set or analysis is reused. IS2109 builds almost every example on textbook data (ISLR, Han & Kamber, Tan et al.), so most of its questions are AI-exposed, as the system reports.
+
+## Held-out set results
+
+**Data:** IS2109H, an unedited copy of IS2109's 288 passages and reviewed map of 127 topics (version `2653af5fe797d66e`), with 13 new questions. The system was frozen at commit `bfe15d5` (`student-v14`, `mark-v2`, marker on Sol). Labels came from how each question was built and from checking the passages, and were checksummed before the run. The full record is `data/eval/IS2109H/REPORT.md`, with label evidence in `evidence.md`.
+
+**Run:** one scored test-drive, `20261103T075317463692-0358cc`, on 3 Nov 2026: 70 seconds, US$0.208, no overrides, no assumption decisions. An earlier attempt, `20261103T075206560474-b48ca6`, failed with a 401 at zero cost and produced no answers, because an old API key in the shell overrode `.env`. Only the server's environment changed between them.
+
+**Score:**
+
+| Metric | Result | 95% Wilson interval |
+|---|---|---|
+| Coverage gaps caught | 4 / 6 (clear 2/2, subtle 2/4) | 0.30 to 0.90 |
+| False gaps | 2 / 7 | 0.08 to 0.64 |
+| AI-exposed | 1 / 3 | 0.06 to 0.79 |
+| Course-specific | 2 / 2 | 0.34 to 1.00 |
+| Student answers correct | 12 / 13 | |
+| Web answers correct | 10 / 13 | |
+
+**By question type:**
+
+| Type | Questions | Expected | Result |
+|---|---|---|---|
+| Clear gap | Lift (taught after the cutoff), Q-learning (never taught) | Gap | 2 of 2 flagged |
+| Subtle gap | Dummy variable reason, AUC as a probability, silhouette formula, k-means++ rule | Gap | Silhouette and k-means++ flagged; dummy variables and AUC missed |
+| Control | Gain ratio, Apriori candidates | No gap | Gain ratio correct; Apriori false gap |
+| Published textbook exercise (ISLR) | KNN, dividend probability, bagged probabilities | No gap; AI-exposed | Dividend false gap but AI-exposed; KNN course-specific; bagging neither taught |
+| Course-specific | Shopper clusters, spline prediction | No gap; course-specific | 2 of 2 correct |
+
+**Causes, read from the run log and not tested:**
+- **Dummy variables, AUC (gaps missed):** the student cited a slide and stated the missing knowledge itself. The checker named what the slide doesn't say and rated it `partial`, which by design is not a gap.
+- **Dividend (false gap):** a correct derivation was rated `unsupported`, because no passage states the derived step.
+- **Apriori (false gap):** the answer was correct, but the student wrongly claimed one pair was the only one to merge, and the checker rejected the step.
+- **KNN (exposure missed):** the web agent searched once and picked the wrong observation, so a published exercise got "keep as is".
+- **Bagging (exposure missed):** the student miscounted votes under a `general_knowledge` step, so a taught topic got "needs knowledge that's neither taught nor declared".
+
+The keys for these questions were recomputed and hold, so no planting mistake was found.
+
+**What the results suggest (interpretation, each on very few cases):**
+- **Gap detection depends on the student declaring a missing source.** It flagged 4 of 4 when the student said it had no source and 0 of 2 when it cited a related slide.
+- **A correct student answer says little about coverage.** The student answered all 6 gap questions correctly, including Q-learning, so all 6 landed in `ai_exposed`. Retrieval is limited to the materials, but the model's own knowledge isn't.
+- **One slip in a single run can reverse the advice,** as with KNN, bagging, and the two false gaps, which also hid those questions' AI exposure.
+- **The web agent may measure model knowledge more than web access.** It made no search on 6 of 13 questions and got all 6 right, and returned a source on 1.
+- **The checker may mix two things.** It sees the claim and passages, not the question, so claims that combine taught knowledge with the question's data or a derivation can be rated down.
+- **Treating `partial` as a gap would not simply fix the misses.** Applied after the fact, it gives 6/6 gaps but 4/7 false gaps. This is not a held-out result.
+- **5/6 and 4/6 can't be compared as a real drop.** The sets differ and the intervals overlap, and neither is a detection rate for real courses, since gaps were 6 of 13 by design. The higher false-gap rate may reflect that this set asks for more derivation.
+
+**Limits:**
+- Claude wrote and labelled the questions with knowledge of where Noodles fails, and no person has checked the labels. Dummy variables is the most arguable gap label.
+- One web search each found no public source for the shopper clusters and spline data, which does not prove they're the lecturer's own. Only Prof. Li can confirm this.
+- The ISLR wording was written from memory and not compared with the book.
+- The set has no true/false question, and spline is a made-up assessment for a week with no real quiz.
+
+**This set is now used.** Any change to prompts, rules or models makes these 13 questions tuning data for the changed system, so a held-out claim about it needs new questions. Rerunning them unchanged returns the cached result, so it doesn't measure run-to-run variation either.
 
 ## History: what the pilot changed
 
@@ -117,8 +174,10 @@ Items 8 and 9 were rerun on IS2109: no new false gaps, and agreement and correct
 
 ## Known weaknesses and open items
 
-- **Student:** misses gaps where the materials show a rule by example without stating it (quiz 2 Q3) or leave out one property (quiz 9 Q2). The earlier `general_knowledge` pattern (course knowledge filed as general knowledge) no longer appears: its cases are taught by the corrected cutoffs, so it is untested rather than fixed.
-- **`partial` citations are never gaps.** In the perturbed set the grounding checker named the missing knowledge but the rule kept it from being a gap (precision/F1; Laplace was also missed this way in an earlier run). Whether a `partial` whose reason says the key claim is missing should count as a gap is undecided.
+- **Student:** misses gaps where the materials show a rule by example without stating it (quiz 2 Q3) or leave out one property (quiz 9 Q2), and answers correctly on topics the course doesn't teach (held-out set). The earlier `general_knowledge` pattern (course knowledge filed as general knowledge) no longer appears: its cases are taught by the corrected cutoffs, so it is untested rather than fixed.
+- **`partial` citations are never gaps.** In the perturbed set the grounding checker named the missing knowledge but the rule kept it from being a gap (precision/F1; Laplace was also missed this way in an earlier run). Both gaps missed in the held-out set happened the same way. Whether a `partial` whose reason says the key claim is missing should count as a gap is undecided.
+- **False gaps on derivations and wrong side claims.** 2 of 7 in the held-out set (dividend, Apriori), against none on IS2109's latest run.
+- **Single runs drive the advice.** One agent error can change a recommendation (held-out set: KNN, bagging).
 - **Answers:** 2 wrong answers on covered questions (quiz 6 Q2, quiz 8 Q2).
 - **Answers marked only by styling** (coloured or bold options) are lost at parsing; see `docs/sys-design.md` (Known bug). Quiz 4's keys were typed in by hand.
-- **Not done yet:** a second course, as unseen questions; repeated runs to measure run-to-run variation.
+- **Not done yet:** a second course; a person checking the labels; repeated runs to measure run-to-run variation, which needs a way around the run-log cache.

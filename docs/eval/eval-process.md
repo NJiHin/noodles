@@ -1,6 +1,6 @@
 # How the evaluation works
 
-A plain walkthrough of the reference-set evaluation. The rules and file formats are in `docs/specs/13-evaluation.md`; the design is in `docs/sys-design.md` ("Evaluation"); why the method is valid, its limitations and the IS2109 pilot results are in `docs/eval/eval-findings.md`.
+A plain walkthrough of the reference-set evaluation. The rules and file formats are in `docs/specs/13-evaluation.md`; the design is in `docs/sys-design.md` ("Evaluation"); why the method is valid, its limitations and the results (IS2109, the perturbed set and the held-out set) are in `docs/eval/eval-findings.md`.
 
 ## The idea
 
@@ -75,3 +75,21 @@ uv run python -m noodles.eval score <version_id> --labels labels.json
 ```
 
 reports how many planted problems were caught and how many false flags were raised, for coverage and AI exposure separately.
+
+If the system is changed after a run on these questions, they become development data, not a test.
+
+## The held-out set
+
+A once-only test of a frozen system on new questions, so the score isn't inflated by tuning on the same questions. IS2109H (3 Nov 2026) followed these steps; its files are in `data/eval/IS2109H/`, including `RUNBOOK.md`.
+
+1. **Write new questions:** none reused from earlier sets, on a new course code copied from the course. Cover clear gaps, subtle gaps, controls on taught material, published exercises and questions that need the course's own numbers or labels.
+2. **Label from construction:** set each label from how the question was built and from checking the passages, and record the evidence. Use null where a label isn't known by construction.
+3. **Freeze:** record the commit, and checksum the labels and questions before the run. Prompts, rules and models don't change from here.
+4. **Run once:** one test-drive with no overrides. A failure that produces no answers, such as an authentication error, can be retried if nothing else changes; record it.
+5. **Score and report as it comes out:**
+
+   ```
+   uv run python -m noodles.eval score <version_id> --labels labels.json
+   ```
+
+If a question turns out to be mis-built, fix or remove it and say so; never relabel it from the results. After any change to prompts, rules or models, a held-out claim needs new questions. Rerunning unchanged questions returns the cached result.
